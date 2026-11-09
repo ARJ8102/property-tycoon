@@ -1,0 +1,6 @@
+import {actingPlayer,mortgageValue,type GameAction,type GameState} from '@property-tycoon/shared';
+import {Modal} from './Modal';import {useViewer} from './Viewer';import {money} from './format';
+export function InheritanceDialog({game,dispatch}:{game:GameState;dispatch:(action:GameAction)=>void}){
+ const entry=game.inheritances[0]!,player=actingPlayer(game),{canControl}=useViewer(game);
+ return <Modal title="Inherited mortgages"><p>{player.name} has paid the immediate 10% transfer interest. For each title, pay its principal now or keep it mortgaged. Keeping a mortgage means another 10% interest is due on a later redemption.</p>{entry.propertyIds.map(id=>{const property=game.spaces[id]!;if(!('price' in property))return null;const principal=mortgageValue(property);return <section key={id}><h3>{property.name}</h3><div className="action-row"><button className="secondary" disabled={!canControl(player.id)||player.cash<principal} onClick={()=>dispatch({type:'REDEEM_INHERITED',actorId:player.id,expectedRevision:game.revision,propertyId:id})}>Redeem now {money(principal)}</button><button className="secondary" disabled={!canControl(player.id)} onClick={()=>dispatch({type:'KEEP_INHERITED',actorId:player.id,expectedRevision:game.revision,propertyId:id})}>Keep mortgage</button></div></section>;})}</Modal>;
+}

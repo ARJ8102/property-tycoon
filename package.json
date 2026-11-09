@@ -1,0 +1,27 @@
+{
+  "name": "property-tycoon",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "client",
+    "shared",
+    "server"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w client",
+    "build": "npm run typecheck && npm run build -w server && npm run build -w client",
+    "typecheck": "tsc -p shared/tsconfig.json && tsc -p client/tsconfig.json && tsc -p server/tsconfig.json --noEmit",
+    "test": "tsc -p shared/tsconfig.json --noEmit false --outDir shared/.test-build && node shared/test/run.mjs",
+    "test:browser": "node client/test/game.browser.mjs",
+    "dev:server": "npm run dev -w server",
+    "test:server": "npm run test -w server",
+    "test:online": "node client/test/online.browser.mjs",
+    "test:connection": "node client/test/connection.browser.mjs",
+    "test:production": "node client/test/production.browser.mjs",
+    "check:gitignore": "node scripts/check-git-ignore.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.65.0",
+    "typescript": "~5.7.3"
+  }
+}

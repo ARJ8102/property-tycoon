@@ -1,0 +1,60 @@
+import assert from 'node:assert/strict';
+import {spawn,execFileSync} from 'node:child_process';
+import {chromium} from 'playwright';
+execFileSync('npm',['run','build','-w','server'],{stdio:'pipe'});
+const url='http://127.0.0.1:5191',backend='http://127.0.0.1:3191';
+const processes=[spawn(process.execPath,['server/dist/server/src/main.js'],{env:{...process.env,PORT:'3191',HOST:'127.0.0.1',CLIENT_ORIGINS:url},stdio:'pipe',detached:true}),spawn('npm',['run','dev','-w','client','--','--host','127.0.0.1','--port','5191','--strictPort'],{env:{...process.env,DEV_SERVER_URL:backend},stdio:'pipe',detached:true})];
+let output='';for(const p of processes){p.stdout.on('data',d=>output+=d);p.stderr.on('data',d=>output+=d);}
+let browser,pages=[],checks=0;
+async function check(name,fn){await fn();console.log(`PASS ${name}`);checks++;}
+try{
+ for(const endpoint of [backend+'/health',url]){let ready=false;for(let n=0;n<150;n++){try{if((await fetch(endpoint)).ok){ready=true;break;}}catch{}await new Promise(r=>setTimeout(r,100));}assert.ok(ready,output);}
+ browser=await chromium.launch({executablePath:process.env.CHROMIUM_EXECUTABLE??process.argv[2],headless:true,args:['--no-sandbox','--disable-background-timer-throttling','--disable-renderer-backgrounding','--disable-backgrounding-occluded-windows']});const context=await browser.newContext({reducedMotion:'reduce',viewport:{width:1366,height:768}}),a=await context.newPage(),b=await (await browser.newContext({reducedMotion:'reduce',viewport:{width:1366,height:768}})).newPage();pages=[a,b];const routes=new Map(),cut=new Set();for(const p of pages)await p.routeWebSocket('**/socket.io/**',ws=>{if(cut.has(p)){void ws.close({code:1001});return;}routes.set(p,ws.connectToServer());});const errors=[];for(const p of [a,b])p.on('pageerror',e=>errors.push(e.message));
+ const wait=async(fn)=>{for(let i=0;i<150;i++){if(await fn())return;await a.waitForTimeout(100);}throw new Error('Timed out waiting for synchronized UI');};
+ const open=async p=>{await p.goto(url);await p.getByRole('button',{name:/^Online/}).click();await p.getByRole('button',{name:'Create table',exact:true}).waitFor();await wait(()=>p.getByRole('button',{name:'Create table',exact:true}).isEnabled());};
+ let room;
+ await check('two tabs create/join a room, reject duplicate tokens and synchronize ready status',async()=>{
+  await open(a);await a.locator('#online-name').fill('Alice');await a.getByLabel('Maximum players').selectOption('8');await a.getByRole('button',{name:'Create table',exact:true}).click();await a.locator('.room-heading strong').waitFor();room=await a.locator('.room-heading strong').innerText();assert.match(room,/^[A-Z2-9]{6}$/);
+  await open(b);await b.getByRole('button',{name:'Join room',exact:true}).click();await b.locator('#room-code').fill(room);await b.locator('#online-name').fill('Bob');await b.getByRole('button',{name:'Join table',exact:true}).click();await b.getByText('That token is already taken.',{exact:true}).first().waitFor();await b.getByRole('button',{name:'Triangle token',exact:true}).click();await b.getByRole('button',{name:'Join table',exact:true}).click();await b.locator('.lobby-players').waitFor();await wait(async()=>await a.locator('.lobby-players li').count()===2);assert.equal(await b.getByRole('button',{name:'Start match',exact:true}).count(),0);assert.equal(await a.getByRole('button',{name:'Start match',exact:true}).isDisabled(),true);
+  await a.getByRole('button',{name:'Ready',exact:true}).click();await b.getByRole('button',{name:'Ready',exact:true}).click();await wait(()=>a.getByRole('button',{name:'Start match',exact:true}).isEnabled());await a.getByRole('button',{name:'Start match',exact:true}).click();await b.getByRole('dialog',{name:'Determine Turn Order',exact:true}).waitFor();
+ });
+ await check('initial order is server rolled and shared; only the host confirms',async()=>{
+  for(let i=0;i<100;i++){
+   if(await a.getByRole('button',{name:'Start Game',exact:true}).count())break;
+   for(const p of [a,b]){const roll=p.getByRole('button',{name:'Roll for Turn Order',exact:true});if(await roll.count()&&await roll.isEnabled()){await roll.click();await p.waitForTimeout(100);}}
+  }
+  await a.getByRole('button',{name:'Start Game',exact:true}).waitFor();assert.equal(await b.getByRole('button',{name:'Start Game',exact:true}).isDisabled(),true);assert.equal(await a.locator('.order-roll-list').innerText(),await b.locator('.order-roll-list').innerText());await a.getByRole('button',{name:'Start Game',exact:true}).click();await a.getByRole('dialog').waitFor({state:'hidden'});await b.getByRole('dialog').waitFor({state:'hidden'});
+ });
+ let current,other;
+ async function drain(p){await p.bringToFront();for(let i=0;i<100;i++){if(await p.getByRole('dialog',{name:/^Auction/}).count())return;const dismiss=p.getByRole('button',{name:'Dismiss announcement',exact:true});if(await dismiss.count()){try{await dismiss.click({timeout:1500});}catch(e){if(await p.getByRole('dialog',{name:/^Auction/}).count())return;if(await dismiss.count()){await p.screenshot({path:'/tmp/tycoon-online-click.png'});console.log(await dismiss.evaluate(e=>({rect:e.getBoundingClientRect().toJSON(),hit:document.elementFromPoint(e.getBoundingClientRect().x+5,e.getBoundingClientRect().y+5)?.outerHTML})));throw e;}}}else if(await p.locator('.playing').getAttribute('data-busy')==='true')await p.waitForTimeout(100);else{await p.waitForTimeout(50);if(!await dismiss.count())return;}}}
+ async function actionClick(p,button){const revision=await p.locator('.playing').getAttribute('data-revision');await p.bringToFront();await button.click();await wait(async()=>await p.locator('.playing').getAttribute('data-revision')!==revision);}
+ async function finishLanding(){
+  for(let step=0;step<12;step++){
+   await drain(current);await drain(other);
+   if(await current.getByRole('button',{name:'Decline',exact:true}).count()){await current.bringToFront();await actionClick(current,current.getByRole('button',{name:'Decline',exact:true}));continue;}
+   if(await current.getByRole('dialog',{name:/Auction/}).count()||await other.getByRole('dialog',{name:/Auction/}).count()){
+    for(const p of [current,other]){const pass=p.getByRole('button',{name:'Pass auction',exact:true});if(await pass.count()&&await pass.isEnabled()){await p.bringToFront();await actionClick(p,pass);await p.waitForTimeout(100);}}
+    continue;
+   }
+   return;
+  }throw new Error('Landing did not settle');
+ }
+ await check('real-time dice, property decisions, history and Bank use the shared table',async()=>{
+  await wait(async()=>await a.getByRole('button',{name:'Roll Dice',exact:true}).isEnabled()||await b.getByRole('button',{name:'Roll Dice',exact:true}).isEnabled());current=await a.getByRole('button',{name:'Roll Dice',exact:true}).isEnabled()?a:b;other=current===a?b:a;await current.bringToFront();assert.equal(await other.getByRole('button',{name:'Roll Dice',exact:true}).isDisabled(),true);await actionClick(current,current.getByRole('button',{name:'Roll Dice',exact:true}));await drain(current);await drain(other);
+  assert.equal(await current.locator('.dice-pair').innerText(),await other.locator('.dice-pair').innerText());assert.equal(await other.getByRole('button',{name:/^Buy for/}).count(),0);
+  await finishLanding();
+  assert.equal(await current.locator('.player-leaderboard').innerText(),await other.locator('.player-leaderboard').innerText());
+  for(const p of [current,other]){await p.bringToFront();await p.getByRole('button',{name:'Table History',exact:true}).click();await p.getByRole('dialog',{name:'Table History',exact:true}).waitFor();assert.match(await p.locator('.event-log').innerText(),/rolled/);await p.keyboard.press('Escape');await p.getByRole('button',{name:'Bank',exact:true}).click();await p.getByRole('dialog',{name:'Bank',exact:true}).waitFor();await p.keyboard.press('Escape');}
+ });
+ await check('human-to-human trade review supports rejection and atomic acceptance',async()=>{
+  await current.bringToFront();await current.getByRole('button',{name:'Trade',exact:true}).click();await current.getByLabel('Cash you offer').fill('10');await current.getByRole('button',{name:'Review trade',exact:true}).click();await current.getByRole('button',{name:'Approve & send',exact:true}).click();await other.getByRole('dialog',{name:'Review trade',exact:true}).waitFor();await other.bringToFront();await other.getByRole('button',{name:'Reject trade',exact:true}).click();await drain(current);await drain(other);
+  await current.bringToFront();const balances=await current.locator('.player-leaderboard button>b').allTextContents();await current.getByRole('button',{name:'Trade',exact:true}).click();await current.getByLabel('Cash you offer').fill('10');await current.getByRole('button',{name:'Review trade',exact:true}).click();await current.getByRole('button',{name:'Approve & send',exact:true}).click();await other.bringToFront();await other.getByRole('button',{name:'Accept trade',exact:true}).click();await drain(current);await drain(other);await wait(async()=>await current.locator('.player-leaderboard').innerText()===await other.locator('.player-leaderboard').innerText());assert.notDeepEqual(await current.locator('.player-leaderboard button>b').allTextContents(),balances);
+ });
+ await check('refresh and interrupted transport restore the same player and pause/resume the table',async()=>{
+  await current.bringToFront();const before=await current.locator('.current-player-card').innerText(),seat=await current.evaluate(()=>JSON.parse(sessionStorage.getItem('property-tycoon-room')));const oldRoute=routes.get(current);await current.reload();await current.locator('.playing').waitFor();await wait(()=>routes.get(current)!==oldRoute);await current.waitForTimeout(300);assert.equal(await current.locator('.current-player-card').innerText(),before);assert.equal((await current.evaluate(()=>JSON.parse(sessionStorage.getItem('property-tycoon-room')))).playerId,seat.playerId);
+  cut.add(current);await current.context().setOffline(true);assert.ok(routes.has(current));await routes.get(current).close({code:1001,reason:'Transport interruption test'});await wait(async()=>/reconnect/.test(await other.locator('.online-status').innerText()));assert.equal(await other.getByRole('button',{name:'Roll Dice',exact:true}).isDisabled(),true);cut.delete(current);await current.context().setOffline(false);await wait(async()=>await current.locator('.online-status').innerText().then(t=>t.startsWith('Connected'))&&!/reconnect/.test(await other.locator('.online-status').innerText()));assert.equal(await current.locator('.current-player-card').innerText(),before);
+  await current.bringToFront();for(let i=0;i<3&&await current.getByRole('button',{name:'End Turn',exact:true}).isDisabled();i++){await actionClick(current,current.getByRole('button',{name:'Roll Dice',exact:true}));await finishLanding();}await current.getByRole('button',{name:'End Turn',exact:true}).click();await wait(()=>other.getByRole('button',{name:'Roll Dice',exact:true}).isEnabled());
+ });
+ await check('online layout fits desktop and remains usable on mobile',async()=>{for(const p of [a,b]){await p.bringToFront();await p.setViewportSize({width:390,height:844});assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await p.getByRole('button',{name:'Bank',exact:true}).click();await p.getByRole('dialog',{name:'Bank',exact:true}).waitFor();await p.keyboard.press('Escape');}assert.deepEqual(errors,[]);});
+ console.log(`${checks} online browser checks passed.`);
+}catch(error){for(let i=0;i<pages.length;i++)await pages[i].screenshot({path:`/tmp/tycoon-online-failure-${i}.png`});throw error;}finally{await browser?.close();for(const p of processes)try{process.kill(-p.pid,'SIGTERM');}catch{}}

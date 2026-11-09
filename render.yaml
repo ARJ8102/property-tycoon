@@ -1,0 +1,37 @@
+# Keep Root Directory blank for both services: shared/ and the root lockfile are required.
+# Deployment preparation only. Do not apply this Blueprint without approval.
+services:
+  - type: web
+    name: property-tycoon-api
+    runtime: node
+    branch: main
+    autoDeployTrigger: 'off'
+    buildCommand: npm ci --include=dev && npm run build -w server
+    startCommand: npm start -w server
+    healthCheckPath: /health
+    numInstances: 1
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: FRONTEND_URL
+        sync: false
+  - type: web
+    name: property-tycoon-client
+    runtime: static
+    branch: main
+    autoDeployTrigger: 'off'
+    buildCommand: npm ci --include=dev && npm run build -w client
+    staticPublishPath: client/dist
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: VITE_SERVER_URL
+        sync: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

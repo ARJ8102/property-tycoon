@@ -1,0 +1,14 @@
+node_modules/
+dist/
+build/
+shared/.test-build/
+*.tsbuildinfo
+*.log
+.env
+.env.*
+!.env.example
+!.env.*.example
+.aws/
+*.key
+*.pem
+.DS_Store
