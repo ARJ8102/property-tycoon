@@ -1,5 +1,7 @@
-import { useEffect, useId, useRef, type ReactNode } from 'react';
+import { ViewerContext } from './Viewer';
+import { useContext, useEffect, useId, useRef, type ReactNode } from 'react';
 export function Modal({title, children, onClose}: {title:string;children:ReactNode;onClose?:()=>void}) {
+ const {online,onExit}=useContext(ViewerContext);
  const ref=useRef<HTMLDialogElement>(null), headingId=useId();
  useEffect(()=>{
   const dialog=ref.current!;
@@ -18,5 +20,5 @@ export function Modal({title, children, onClose}: {title:string;children:ReactNo
   const first=targets[0],last=targets[targets.length-1];
   if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus();}
   else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus();}
- }}><header className="rules-header"><h2 id={headingId}>{title}</h2>{onClose&&<button type="button" className="rules-close" aria-label={`Close ${title}`} onClick={onClose}>×</button>}</header><div className="rules-content" tabIndex={0}>{children}</div></dialog>;
+ }}><header className="rules-header"><h2 id={headingId}>{title}</h2>{onClose&&<button type="button" className="rules-close" aria-label={`Close ${title}`} onClick={onClose}>×</button>}</header><div className="rules-content" tabIndex={0}>{children}{online&&onExit&&<button className="text-button" onClick={onExit}>Exit to menu</button>}</div></dialog>;
 }
