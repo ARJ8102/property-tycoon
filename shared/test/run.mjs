@@ -26,3 +26,5 @@ import './final-doubles.test.mjs';
 import './final-auctions.test.mjs';
 import './final-debt.test.mjs';
 import './final-bankruptcy.test.mjs';
+
+import './recovery-retirement.test.mjs';

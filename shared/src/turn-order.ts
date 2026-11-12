@@ -30,7 +30,7 @@ export function recordOrderRoll(state:GameState, actorId:string,dice:[number,num
  }
  if(selection.groups.every(g=>g.playerIds.length===1)){
   state.turnOrder=selection.groups.flatMap(g=>g.playerIds);
-  if(state.turnOrder.length!==state.players.length||new Set(state.turnOrder).size!==state.players.length)throw new Error('Invalid final turn order.');
+  if(state.turnOrder.length!==state.players.filter(p=>!p.bankrupt).length||new Set(state.turnOrder).size!==state.players.filter(p=>!p.bankrupt).length)throw new Error('Invalid final turn order.');
   state.phase='order-ready';state.currentPlayerIndex=state.players.findIndex(p=>p.id===state.turnOrder[0]);
   emitEvent(state,`Final turn order: ${state.turnOrder.map((id,i)=>`${i+1}. ${state.players.find(p=>p.id===id)!.name}`).join(' · ')}. Confirm Start Game to begin.`,'turns',{actorId});
  }else{

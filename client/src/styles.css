@@ -468,3 +468,7 @@ button:disabled{cursor:not-allowed;opacity:.45;filter:none}
  .playing .board .space.many-occupants{padding-bottom:25px}
  .playing .board .space.property.edge-top.many-occupants{padding-bottom:29px}
 }
+
+.online-players{list-style:none;padding:0;display:grid;gap:16px}.online-players li{display:flex;flex-wrap:wrap;align-items:center;gap:10px}.online-players li>span{margin-left:auto;font-size:13px}.lobby-players small{color:#52664f}
+
+.mode-picker{flex-wrap:wrap}.mode-picker>.text-button{flex-basis:100%}

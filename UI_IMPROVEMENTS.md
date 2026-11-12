@@ -80,7 +80,7 @@ All validation above was rerun successfully using the cached Chromium executable
 ## Manual Render rollout (no automatic deployment performed)
 
 Both the backend Web Service and frontend Static Site require redeployment for
-the synchronized card protocol. Socket identity protocol is now **3**, preventing
+the synchronized card protocol. Socket identity protocol is now **4**, preventing
 older frontends from submitting commands to an incompatible backend. Use a quiet
 period: the existing in-memory rooms do not survive a backend restart. Redeploy
 the backend, then the frontend, and reload all three devices. Environment variables

@@ -22,7 +22,7 @@ export interface SpecialSpace extends BaseSpace { kind: 'start' | 'event' | 'tax
 export type Space = PropertySpace | TransitSpace | UtilitySpace | SpecialSpace;
 export type PurchasableSpace = PropertySpace | TransitSpace | UtilitySpace;
 export type BotStrategy = 'conservative' | 'aggressive' | 'strategic';
-export interface Player { id: string; name: string; isBot: boolean; strategy?: BotStrategy; token: TokenId; position: number; cash: number; bankrupt: boolean; troubleCards: number; heldCards: HeldCard[]; detained: boolean; detentionAttempts: number }
+export interface Player { id: string; name: string; isBot: boolean; strategy?: BotStrategy; token: TokenId; position: number; cash: number; bankrupt: boolean; retired?: boolean; troubleCards: number; heldCards: HeldCard[]; detained: boolean; detentionAttempts: number }
 export type GamePhase = 'turn-order' | 'order-ready' | 'awaiting-roll' | 'detention' | 'purchase' | 'actions' | 'debt' | 'trade' | 'auction' | 'inheritance' | 'finished';
 export interface PropertyStatus { mortgaged: boolean; level: number; landmark?: boolean }
 export interface Debt { debtorId: string; creditorId: string | null; amount: number; reason: string; category?: EventCategory }
@@ -46,6 +46,7 @@ export interface GameState {
  inheritances:{playerId:string;propertyIds:number[];interestPaid:boolean}[];
  tradeReturnPhase:GamePhase|null;debtResumePhase:'actions'|'detention'|'awaiting-roll';
  auction:Auction|null;auctionQueue:number[];
+ retirementResumePhase?:GamePhase;
  consecutiveDoubles:number;extraRoll:boolean;
  decks:Record<DeckName,DeckState>|null;
  players: Player[]; spaces: readonly Space[]; ownership: Record<number, string>; properties: Record<number, PropertyStatus>;
@@ -61,6 +62,6 @@ export type GameAction = ActionContext & (
  {type:'BID';amount:number} | {type:'PASS_AUCTION'} |
  { type: 'END_TURN' } | {type:'PAY_RELEASE'|'USE_TROUBLE_CARD'} | { type: 'BUY' } | { type: 'DECLINE' } |
  { type: 'MORTGAGE' | 'UNMORTGAGE' | 'UPGRADE' | 'SELL_UPGRADE' | 'BUILD_LANDMARK' | 'SELL_LANDMARK'; propertyId: number } |
- { type: 'SETTLE_DEBT' } | { type: 'BANKRUPT' } |
+ { type: 'SETTLE_DEBT' } | { type: 'BANKRUPT' } | {type:'RETIRE'} |
  { type: 'PROPOSE_TRADE'; offer: TradeOffer } | { type: 'ACCEPT_TRADE' | 'REJECT_TRADE'; tradeId: string }
 );

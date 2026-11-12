@@ -86,6 +86,7 @@ function resumeDebt(state: GameState) {
  if(solvent.length<=1){state.winnerId=solvent[0]?.id??null;state.currentPlayerIndex=solvent[0]?state.players.findIndex(p=>p.id===solvent[0]!.id):0;state.phase='finished';state.extraRoll=false;state.debtContinuation=null;return;}
 
  const continuation=state.debtContinuation;state.debtContinuation=null;
+ if(state.retirementResumePhase&&!activePlayer(state).bankrupt){state.phase=state.retirementResumePhase;delete state.retirementResumePhase;return;}
  if(!continuation){if(activePlayer(state).bankrupt)advanceTurn(state);else state.phase=state.debtResumePhase;state.debtResumePhase='actions';return;}
  const player=activePlayer(state);player.detained=false;player.detentionAttempts=0;
  log(state, `${player.name} paid $50 and was released after the third attempt.`,'inspection');
@@ -128,6 +129,95 @@ function resolveLanding(state:GameState,seed:number,depth=0,override?:{kind:'tra
   }
  }
 }
+function declareBankruptcy(next:GameState,actorId:string,retirement=false){
+ const state=next;
+  requireRule(state.phase==='debt'&&state.debt,'Bankruptcy requires an outstanding debt.');
+  const player=next.players.find(p=>p.id===actorId)!,debt=state.debt;
+  requireRule(retirement||finances(state,player.id).liquidationCash<debt.amount,'Raise funds: your assets can still cover this debt.');
+  const transferredMortgages:number[]=[];
+  for(const property of ownedProperties(next,player.id)){
+   const status={...propertyStatus(next,property.id)};
+   const refund=developmentValue(property,status)/2;if(refund){player.cash+=refund;log(next,`${player.name} liquidates developments on ${property.name} for $${refund}.`,'developments',{actorId:player.id,propertyId:property.id,amount:refund,cashTransfers:[{from:null,to:player.id,amount:refund}]});}
+   status.level=0;status.landmark=false;
+   if(debt.creditorId){next.ownership[property.id]=debt.creditorId;next.properties[property.id]=status;if(status.mortgaged)transferredMortgages.push(property.id);}
+   else{delete next.ownership[property.id];delete next.properties[property.id];next.auctionQueue.push(property.id);}
+   log(next,`${property.name} transfers from ${player.name} to ${debt.creditorId?next.players.find(p=>p.id===debt.creditorId)!.name:'the bank'}.`,'bankruptcy',{actorId:player.id,propertyTransfers:[{propertyId:property.id,from:player.id,to:debt.creditorId}]});
+  }
+  const recipient=debt.creditorId?next.players.find(p=>p.id===debt.creditorId)!:null;
+  if(recipient){recipient.cash+=player.cash;for(const card of player.heldCards)holdCard(recipient,card.deck,card.id);player.heldCards=[];player.troubleCards=0;if(transferredMortgages.length)next.inheritances.push({playerId:recipient.id,propertyIds:transferredMortgages,interestPaid:false});}
+  else while(player.heldCards.length)returnHeldCard(next,player);
+  log(next,`${player.name} transfers remaining cash $${player.cash} to ${recipient?.name??'the bank'}.`,'bankruptcy',{actorId:player.id,amount:player.cash,cashTransfers:[{from:player.id,to:debt.creditorId,amount:player.cash}]});
+  if(player.id===activePlayer(next).id)next.debtContinuation=null;
+  player.cash=0;player.bankrupt=true;player.detained=false;player.detentionAttempts=0;next.debt=null;next.pendingPurchase=null;next.trade=null;next.tradeReturnPhase=null;
+  log(next,`${player.name} declares bankruptcy. ${recipient?'The creditor inherits remaining titles and release cards.':'The bank returns release cards and auctions each title.'}`,'bankruptcy',{actorId:player.id});
+  settleQueuedPayments(next);
+}
+/** Permanent withdrawal. Temporary disconnection must never call this transition. */
+function retire(state:GameState,playerId:string){
+ const player=state.players.find(p=>p.id===playerId)!;
+ player.retired=true;
+ if(state.debt?.debtorId===playerId){
+  state.trade=null;state.tradeReturnPhase=null;state.phase='debt';
+  declareBankruptcy(state,playerId,true);
+ }else{
+  // Cancel a trade involving the departing seat, preserving any underlying debt.
+  if(state.trade&&(state.trade.proposerId===playerId||state.trade.partnerId===playerId)){
+   state.trade=null;state.phase=state.tradeReturnPhase??'actions';state.tradeReturnPhase=null;
+   log(state,`${player.name}'s pending trade is cancelled by retirement.`,'trades',{actorId:playerId});
+  }
+  for(const property of ownedProperties(state,playerId)){
+   delete state.ownership[property.id];delete state.properties[property.id];
+   state.auctionQueue.push(property.id);
+   log(state,`${property.name} returns to the bank after ${player.name} retires.`,'bankruptcy',{actorId:playerId,propertyTransfers:[{propertyId:property.id,from:playerId,to:null}]});
+  }
+  while(player.heldCards.length)returnHeldCard(state,player);
+  log(state,`${player.name} returns $${player.cash} to the bank.`,'bankruptcy',{actorId:playerId,cashTransfers:[{from:playerId,to:null,amount:player.cash}]});
+  player.cash=0;player.bankrupt=true;player.detained=false;player.detentionAttempts=0;
+  if(state.debt?.creditorId===playerId)state.debt.creditorId=null;
+  for(const payment of state.paymentQueue)if(payment.creditorId===playerId)payment.creditorId=null;
+  state.inheritances=state.inheritances.filter(e=>e.playerId!==playerId);
+  if(state.auction?.participants.includes(playerId)||state.auction?.highestBidderId===playerId){
+   // Withdraw a departing bidder's commitment and reopen this same property fairly.
+   state.auctionQueue.unshift(state.auction!.propertyId);state.auction=null;
+   log(state,'The auction restarts after a bidder retires. No bid has been charged.','auctions',{actorId:playerId});
+  }
+  if(activePlayer(state).id===playerId&&!isOrderPhase(state)){
+   state.pendingPurchase=null;state.debtContinuation=null;
+   if(state.debt){state.extraRoll=false;state.consecutiveDoubles=0;}
+   else{const pendingPhase=state.phase;advanceTurn(state);state.retirementResumePhase=state.phase;if(state.auction)state.phase='auction';else if(state.inheritances.length)state.phase=pendingPhase;}
+  }
+ }
+ const remaining=state.players.filter(p=>!p.bankrupt);
+ if(remaining.length<=1){
+  state.phase='finished';state.winnerId=remaining[0]?.id??null;state.currentPlayerIndex=remaining[0]?state.players.indexOf(remaining[0]):0;
+  state.auction=null;state.auctionQueue=[];state.debt=null;state.paymentQueue=[];state.inheritances=[];state.trade=null;state.pendingPurchase=null;state.debtContinuation=null;state.extraRoll=false;delete state.retirementResumePhase;
+ }
+ // If a retirement debtor has ongoing auctions, keep its next-turn anchor until
+ // those auctions finish, then restore the successor's roll phase.
+ const slot=state.turnOrder.indexOf(playerId);
+ if(activePlayer(state).id===playerId&&slot>=0&&remaining.length>1&&!isOrderPhase(state)){
+  const successor=state.turnOrder.slice(slot+1).concat(state.turnOrder.slice(0,slot)).find(id=>!state.players.find(p=>p.id===id)!.bankrupt);
+  if(successor){state.currentPlayerIndex=state.players.findIndex(p=>p.id===successor);state.extraRoll=false;state.consecutiveDoubles=0;state.dice=null;state.developedThisTurn=[];state.turn++;
+   state.retirementResumePhase=activePlayer(state).detained?'detention':'awaiting-roll';}
+ }
+ state.turnOrder=state.turnOrder.filter(id=>id!==playerId);
+ if(isOrderPhase(state)&&state.turnSelection){
+  state.turnSelection.groups=state.turnSelection.groups.flatMap(g=>{
+   const ids=g.playerIds.filter(id=>id!==playerId);if(!ids.length)return [];
+   if(ids.length>1&&ids.every(id=>g.rolls[id])){
+    const scores=new Map<number,string[]>();for(const id of ids){const dice=g.rolls[id]!,score=dice[0]+dice[1];scores.set(score,[...(scores.get(score)??[]),id]);}
+    return [...scores.entries()].sort(([a],[b])=>b-a).map(([,playerIds])=>({playerIds,round:g.round+1,rolls:{}}));
+   }
+   return [{...g,playerIds:ids}];
+  });
+  if(state.turnSelection.groups.every(g=>g.playerIds.length===1)){
+   state.turnOrder=state.turnSelection.groups.flatMap(g=>g.playerIds);state.phase='order-ready';state.currentPlayerIndex=state.players.findIndex(p=>p.id===state.turnOrder[0]);
+  }else{state.phase='turn-order';const next=nextOrderRoller(state);if(next)state.currentPlayerIndex=state.players.indexOf(next);}
+ }
+ if(state.phase==='inheritance'&&!state.inheritances.length&&!state.debt)settleQueuedPayments(state);
+ if(state.retirementResumePhase&&!state.auction&&!state.auctionQueue.length&&!state.debt&&!state.inheritances.length){state.phase=state.retirementResumePhase;delete state.retirementResumePhase;}
+ log(state,`${player.name} permanently retires from the game.`,'bankruptcy',{actorId:playerId});
+}
 /** Pure transition; a revision makes replayed/double-clicked commands invalid. */
 export function applyAction(state: GameState, action: GameAction): GameState {
  requireRule(state.phase !== 'finished', 'The game has ended.');
@@ -136,7 +226,8 @@ export function applyAction(state: GameState, action: GameAction): GameState {
  requireRule(actor && !actor.bankrupt,'Eliminated or unknown players cannot act.');
  const responding=action.type==='ACCEPT_TRADE'||action.type==='REJECT_TRADE';
  const orderAction=action.type==='ROLL_ORDER'||action.type==='START_GAME';
- if(isOrderPhase(state)||orderAction){
+ if(action.type==='RETIRE'){/* A player may permanently retire outside their turn. */}
+ else if(isOrderPhase(state)||orderAction){
   requireRule(isOrderPhase(state)&&orderAction,'Determine turn order and confirm Start Game before normal gameplay.');
   if(action.type==='ROLL_ORDER')requireRule(state.phase==='turn-order'&&nextOrderRoller(state)?.id===actor.id,'Wait for your turn-order roll.');
   else requireRule(state.phase==='order-ready'&&!actor.isBot,'Only the human may confirm Start Game after all ties are resolved.');
@@ -148,7 +239,7 @@ export function applyAction(state: GameState, action: GameAction): GameState {
  switch (action.type) {
  case 'ROLL_ORDER': {recordOrderRoll(next,action.actorId,action.dice);break;}
  case 'START_GAME': {
-  requireRule(state.turnOrder.length===state.players.length&&new Set(state.turnOrder).size===state.players.length,'Turn order is incomplete.');
+  requireRule(state.turnOrder.length===state.players.filter(p=>!p.bankrupt).length&&new Set(state.turnOrder).size===state.players.filter(p=>!p.bankrupt).length,'Turn order is incomplete.');
   next.currentPlayerIndex=next.players.findIndex(p=>p.id===next.turnOrder[0]);next.phase='awaiting-roll';next.turn=1;next.turnSelection=null;next.dice=null;next.developedThisTurn=[];
   log(next, `${activePlayer(next).name} starts the game. The finalized turn order is fixed.`,'turns');break;
  }
@@ -181,28 +272,10 @@ export function applyAction(state: GameState, action: GameAction): GameState {
   }
   move(next,steps); resolveLanding(next, action.cardDraw,0,undefined,[...(action.entropy??[])]); break;
  }
- case 'BANKRUPT': {
-  requireRule(state.phase==='debt'&&state.debt,'Bankruptcy requires an outstanding debt.');
-  const player=next.players.find(p=>p.id===action.actorId)!,debt=state.debt;
-  requireRule(finances(state,player.id).liquidationCash<debt.amount,'Raise funds: your assets can still cover this debt.');
-  const transferredMortgages:number[]=[];
-  for(const property of ownedProperties(next,player.id)){
-   const status={...propertyStatus(next,property.id)};
-   const refund=developmentValue(property,status)/2;if(refund){player.cash+=refund;log(next,`${player.name} liquidates developments on ${property.name} for $${refund}.`,'developments',{actorId:player.id,propertyId:property.id,amount:refund,cashTransfers:[{from:null,to:player.id,amount:refund}]});}
-   status.level=0;status.landmark=false;
-   if(debt.creditorId){next.ownership[property.id]=debt.creditorId;next.properties[property.id]=status;if(status.mortgaged)transferredMortgages.push(property.id);}
-   else{delete next.ownership[property.id];delete next.properties[property.id];next.auctionQueue.push(property.id);}
-   log(next,`${property.name} transfers from ${player.name} to ${debt.creditorId?next.players.find(p=>p.id===debt.creditorId)!.name:'the bank'}.`,'bankruptcy',{actorId:player.id,propertyTransfers:[{propertyId:property.id,from:player.id,to:debt.creditorId}]});
-  }
-  const recipient=debt.creditorId?next.players.find(p=>p.id===debt.creditorId)!:null;
-  if(recipient){recipient.cash+=player.cash;for(const card of player.heldCards)holdCard(recipient,card.deck,card.id);player.heldCards=[];player.troubleCards=0;if(transferredMortgages.length)next.inheritances.push({playerId:recipient.id,propertyIds:transferredMortgages,interestPaid:false});}
-  else while(player.heldCards.length)returnHeldCard(next,player);
-  log(next,`${player.name} transfers remaining cash $${player.cash} to ${recipient?.name??'the bank'}.`,'bankruptcy',{actorId:player.id,amount:player.cash,cashTransfers:[{from:player.id,to:debt.creditorId,amount:player.cash}]});
-  if(player.id===activePlayer(next).id)next.debtContinuation=null;
-  player.cash=0;player.bankrupt=true;player.detained=false;player.detentionAttempts=0;next.debt=null;next.pendingPurchase=null;next.trade=null;next.tradeReturnPhase=null;
-  log(next,`${player.name} declares bankruptcy. ${recipient?'The creditor inherits remaining titles and release cards.':'The bank returns release cards and auctions each title.'}`,'bankruptcy',{actorId:player.id});
-  settleQueuedPayments(next);break;
+ case 'RETIRE': {
+  retire(next,action.actorId);break;
  }
+ case 'BANKRUPT': {declareBankruptcy(next,action.actorId);break;}
  case 'KEEP_INHERITED':case 'REDEEM_INHERITED':{
   requireRule(state.phase==='inheritance'&&state.inheritances[0],'No inherited mortgage choice is pending.');
   const entry=next.inheritances[0]!;
@@ -308,6 +381,9 @@ export function applyAction(state: GameState, action: GameAction): GameState {
   break;
  }
  default: throw new Error('Action is not available.');
+ }
+ if(next.auctionQueue.length&&!next.auction&&!next.debt&&!next.inheritances.length&&!['trade','turn-order','order-ready','finished'].includes(next.phase)){
+  next.retirementResumePhase??=next.phase;const propertyId=next.auctionQueue.shift()!;startAuction(next,propertyId);
  }
  if(Object.keys(state.ownership).some(id=>state.ownership[+id]!==next.ownership[+id])||Object.keys(next.ownership).length!==Object.keys(state.ownership).length)announceCollections(state,next);
  if(next.phase==='finished')log(next,next.winnerId?`${activePlayer(next).name} wins as the last solvent tycoon!`:'The table closes with no solvent players.','winner');

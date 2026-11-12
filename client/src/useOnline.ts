@@ -83,6 +83,8 @@ export function useOnline(){
   socket.current?.disconnect().connect();
  },[receive]);
  const reconnect=useCallback(()=>{socket.current?.disconnect().connect();},[]);
+ const quit=useCallback(async()=>{const ok=await send({type:'quit'});if(ok)forget();return ok;},[send,forget]);
+ useEffect(()=>{if(room?.players.find(p=>p.id===session?.playerId)?.retired)forget();},[room,session,forget]);
  const leave=useCallback(async()=>{
   const client=socket.current;
   try{
@@ -90,5 +92,5 @@ export function useOnline(){
   }catch{/* Local exit must remain available even if transport submission fails. */}
   finally{forget();}
  },[forget]);
- return {room,session,connected,checking,error,pending,blocked:!connected||pending||!!session&&!room||!!room?.paused||animationBlocked,send,dispatch,leave,forget,reconnect};
+ return {room,session,connected,checking,error,pending,blocked:!connected||pending||!!session&&!room||!!room?.paused||animationBlocked,send,dispatch,leave,quit,forget,reconnect};
 }

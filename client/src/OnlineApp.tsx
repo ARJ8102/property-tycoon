@@ -1,3 +1,4 @@
+import {OnlinePlayers} from './OnlinePlayers';
 import {useState} from 'react';
 import {TOKENS,type TokenId} from '@property-tycoon/shared';
 import {GameTable} from './GameTable';
@@ -10,22 +11,34 @@ export function OnlineApp({onOffline}:{onOffline:()=>void}){
  const invite=room?new URL(`?room=${room.code}`,location.href).href:'';
  const copyInvite=async()=>{try{if(navigator.clipboard)await navigator.clipboard.writeText(invite);else{const input=document.querySelector<HTMLInputElement>('#invite-link');input?.select();if(!document.execCommand('copy'))throw new Error('Copy unavailable');}setCopied(true);}catch{setCopied(false);document.querySelector<HTMLInputElement>('#invite-link')?.select();}};
  const [name,setName]=useState(''),[token,setToken]=useState<TokenId>('circle'),[capacity,setCapacity]=useState(4),[code,setCode]=useState(new URLSearchParams(location.search).get('room')??''),[joining,setJoining]=useState(!!code),[copied,setCopied]=useState(false);
+ const [playersOpen,setPlayersOpen]=useState(false);
  const reducedMotion=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
- const leave=()=>{if(room?.game&&room.game.phase!=='finished'&&!window.confirm('Leave this match and clear your saved seat? The remaining players may have to wait for you.'))return;void online.leave();onOffline();};
+ const leave=async()=>{
+  if(room?.game&&room.game.phase!=='finished'){
+   if(connected){
+    if(!window.confirm('Exit and retire permanently? Your seat cannot be rejoined. Assets and outstanding debts follow the retirement rules.'))return;
+    await online.quit();
+   }
+   // Without a confirmed retirement, keep the secure credential for rejoining.
+   onOffline();return;
+  }
+  void online.leave();onOffline();
+ };
+ const quit=async()=>{if(!window.confirm('Quit Game permanently? Your seat cannot be rejoined. Assets return to the bank for auction; outstanding debts follow bankruptcy rules.'))return;if(await online.quit())onOffline();};
  const me=room?.players.find(p=>p.id===session?.playerId),host=room?.hostId===me?.id;
  const tokens=<div className="token-options">{TOKENS.map(t=><button type="button" key={t.id} aria-label={`${t.name} token`} disabled={pending||me?.ready||!!room?.players.some(p=>p.id!==me?.id&&p.token===t.id)} aria-pressed={(me?.token??token)===t.id} className={(me?.token??token)===t.id?'selected':''} onClick={()=>{setToken(t.id);if(room)void send({type:'token',token:t.id});}}><Token id={t.id}/></button>)}</div>;
- const connection=<div className="online-status" role="status"><span className={`status-dot ${connected?'':'disconnected'}`}/>{connected?room?.paused??`Connected${room?` · Room ${room.code}`:''}`:checking?'Checking game server…':'Disconnected · reconnecting…'}{error&&<span role="alert">{error}</span>}{session&&!connected&&<button className="text-button" onClick={online.reconnect}>Reconnect to previous game</button>}{room?.game&&<button className="text-button" onClick={leave}>Exit to menu</button>}</div>;
- if(room?.game&&me)return <ViewerContext.Provider value={{online:true,playerId:me.id,hostId:room.hostId,blocked:online.blocked,onExit:leave,continueCard:(revision,eventId)=>send({type:'continue-card',revision,eventId})}}><div className="online-table">{connection}<GameTable key={room.code} game={room.game} cardPresentation={room.presentation} generation={1} error={error} dispatch={online.dispatch} onSetup={leave} onNewGame={leave} botsEnabled={false}/></div></ViewerContext.Provider>;
+ const connection=<div className="online-status" role="status"><span className={`status-dot ${connected?'':'disconnected'}`}/>{connected?room?.paused??`Connected${room?` · Room ${room.code}`:''}`:checking?'Checking game server…':'Disconnected · reconnecting…'}{error&&<span role="alert">{error}</span>}{session&&!connected&&<button className="text-button" onClick={online.reconnect}>Rejoin Previous Game</button>}{room&&<OnlinePlayers open={playersOpen} onOpenChange={setPlayersOpen} room={room} playerId={me?.id} pending={pending} onRemove={playerId=>send({type:'remove',playerId})}/>} {room?.game&&<><button className="text-button" onClick={leave}>Exit to menu</button>{room.game.phase!=='finished'&&<button className="text-button" disabled={!connected||pending} onClick={()=>void quit()}>Quit Game</button>}</>}</div>;
+ if(room?.game&&me)return <ViewerContext.Provider value={{online:true,playerId:me.id,hostId:room.hostId,blocked:online.blocked,onExit:leave,onPlayers:()=>setPlayersOpen(true),onQuit:room.game.phase!=='finished'?()=>void quit():undefined,continueCard:(revision,eventId)=>send({type:'continue-card',revision,eventId})}}><div className="online-table">{connection}<GameTable key={room.code} game={room.game} cardPresentation={room.presentation} generation={1} error={error} dispatch={online.dispatch} onSetup={leave} onNewGame={leave} botsEnabled={false}/></div></ViewerContext.Provider>;
  return <div className="app"><AppHeader/><main className="online-setup"><section className="panel online-panel">{connection}<h1>{room?'Your private table':'Play online'}</h1>
  {error&&<p className="error-note" role="alert">{error}</p>}
  {room?<>
   <div className="room-heading"><h2>Room <strong>{room.code}</strong></h2><button className="secondary" onClick={()=>void copyInvite()}>Copy invite link</button>{copied&&<small>Invite copied</small>}</div>
-  <label className="field-label" htmlFor="invite-link">Invite link</label><input id="invite-link" readOnly value={invite} onFocus={e=>e.target.select()}/><ul className="lobby-players">{room.players.map(p=><li key={p.id}><Token id={p.token} size={25}/><strong>{p.name}{p.id===me?.id?' (you)':''}</strong><span>{p.id===room.hostId?'Host · ':''}{p.connected?p.ready?'Ready':'Not ready':'Disconnected'}</span>{host&&!p.connected&&<button className="secondary" disabled={pending} onClick={()=>void send({type:'remove',playerId:p.id})}>Remove</button>}</li>)}</ul>
+  <label className="field-label" htmlFor="invite-link">Invite link</label><input id="invite-link" readOnly value={invite} onFocus={e=>e.target.select()}/><ul className="lobby-players">{room.players.map(p=><li key={p.id}><Token id={p.token} size={25}/><strong>{p.name}{p.id===me?.id?' (you)':''}</strong><span>{p.id===room.hostId?'Host · ':''}{p.connected?p.ready?'Ready':'Not ready':'Disconnected'}</span><small>{p.connected?'Online':'Offline'}</small></li>)}</ul>
   {host&&<label className="field-label">Room capacity<select aria-label="Room capacity" value={room.capacity} disabled={pending} onChange={e=>void send({type:'capacity',capacity:Number(e.target.value)})}>{[2,3,4,5,6,7,8].map(n=><option key={n}>{n}</option>)}</select></label>}
   <p>Choose an available token, then ready up.</p>{tokens}
   <div className="action-row"><button className="secondary" disabled={!connected||pending} onClick={()=>void send({type:'ready',ready:!me?.ready})}>{me?.ready?'Not ready':'Ready'}</button>{host&&<button className="primary" disabled={pending||room.players.length<2||!room.players.every(p=>p.ready&&p.connected)} onClick={()=>void send({type:'start'})}>Start match</button>}</div>
  </>:<>
-  {session&&<p>Your saved seat is in room {session.code}. <button className="secondary" disabled={!connected||pending} onClick={()=>void send({type:'resume',code:session.code,secret:session.secret,reducedMotion})}>Reconnect to table</button><button className="text-button" onClick={()=>{void online.leave();setJoining(false);setCode('');}}>Start a new online game</button></p>}
+  {session&&<p>Your saved seat is in room {session.code}. <button className="secondary" disabled={!connected||pending} onClick={()=>void send({type:'resume',code:session.code,secret:session.secret,reducedMotion})}>Rejoin Previous Game</button><button className="text-button" onClick={()=>{void online.leave();setJoining(false);setCode('');}}>Start a new online game</button></p>}
   <div className="action-row"><button className="secondary" aria-pressed={!joining} onClick={()=>setJoining(false)}>Create room</button><button className="secondary" aria-pressed={joining} onClick={()=>setJoining(true)}>Join room</button></div>
   <form onSubmit={e=>{e.preventDefault();void send(joining?{type:'join',code,name,token,reducedMotion}:{type:'create',name,token,capacity,reducedMotion});}}>
    {joining&&<><label className="field-label" htmlFor="room-code">Room code</label><input id="room-code" value={code} maxLength={6} required onChange={e=>setCode(e.target.value.toUpperCase())}/></>}

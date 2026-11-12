@@ -27,7 +27,7 @@ export function createGameServer(options:ServerOptions={}) {
    const envelope=request&&typeof request==='object'?request as Record<string,unknown>:{};
    const command=envelope.command&&typeof envelope.command==='object'?envelope.command as Record<string,unknown>:{};
    const started=Date.now();
-   const commandType=['create','join','resume','leave','ready','token','capacity','remove','start','action','continue-card'].includes(String(command.type))?String(command.type):'unknown';
+   const commandType=['create','join','resume','leave','ready','token','capacity','remove','start','action','continue-card','quit'].includes(String(command.type))?String(command.type):'unknown';
    const action=command.action&&typeof command.action==='object'?command.action as Record<string,unknown>:{};
    const actionType=typeof action.type==='string'&&/^[A-Z_]{1,32}$/.test(action.type)?action.type:undefined;
    diagnostic('[Property Tycoon] Command received',{socketId:socket.id,roomCode:conn.roomCode,commandType,actionType,error:''});
