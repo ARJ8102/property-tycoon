@@ -1,6 +1,7 @@
+import {collectionColor} from './palette';
 import { useViewer } from './Viewer';
 import { useId, useState } from 'react';
-import { mayProposeTrade, actionError, activePlayer, actingPlayer, calculateRent, finances, mortgageValue, ownedProperties, propertyStatus, unmortgageCost, collectionColor, collectionInfo, collectionKey, type GameAction, type GameState, type PurchasableSpace } from '@property-tycoon/shared';
+import { mayProposeTrade, actionError, activePlayer, actingPlayer, calculateRent, finances, mortgageValue, ownedProperties, propertyStatus, unmortgageCost, collectionInfo, collectionKey, type GameAction, type GameState, type PurchasableSpace } from '@property-tycoon/shared';
 import { Token } from './Token';
 import { money } from './format';
 export function Dashboard({game, dispatch, onTrade, onPropertySelect,initialPlayerId}: {game:GameState;dispatch:(a:GameAction)=>void;onTrade:()=>void;onPropertySelect?:(id:number)=>void;initialPlayerId?:string}) {

@@ -1,12 +1,18 @@
 import type { EventCategory, EventDetails, GameEvent, GameState } from './types.js';
 import { calculateRent, isPurchasable, propertyStatus } from './finance.js';
 import { collectionInfo, collectionKey, collectionProperties } from './groups.js';
+let observer:((state:GameState,event:GameEvent)=>void)|undefined;
+/** Synchronous presentation capture; never participates in a game rule or random draw. */
+export function observeGameEvents<T>(run:()=>T,onEvent:(state:GameState,event:GameEvent)=>void):T {
+ const previous=observer;observer=onEvent;try{return run();}finally{observer=previous;}
+}
 export const EVENT_LABELS: Record<EventCategory,string> = {auctions:'Auctions',movement:'Movement',purchases:'Purchases',rent:'Rent',trades:'Trades',mortgages:'Mortgages',developments:'Developments',taxes:'Taxes',cards:'Cards',inspection:'Lockup',bankruptcy:'Bankruptcy',turns:'Turns',groups:'Collections',winner:'Winner',penalties:'Payment / action',system:'Table'};
 /** Event IDs define ordering. No clocks, random values, or UI-generated game text. */
 export function emitEvent(state: GameState, message: string, category: EventCategory='system', data: EventDetails={}) {
  const actorId=data.actorId??state.players[state.currentPlayerIndex]!.id;
  const event: GameEvent={...data,id:(state.log[0]?.id??0)+1,turn:state.turn,category,actorId,actorName:state.players.find(p=>p.id===actorId)?.name??'Table',message};
  state.log.unshift(event);
+ observer?.(state,event);
 }
 export function formatGameEvent(event: GameEvent): string { return event.message; }
 export function announceCollections(before: GameState, after: GameState) {

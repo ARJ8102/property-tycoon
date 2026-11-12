@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { GameEvent, GameState } from '@property-tycoon/shared';
 /** Only presentation state lives here. Engine event IDs keep the queue ordered. */
-export function useAnnouncements(game:GameState|null, generation:number, paused:boolean) {
+export function useAnnouncements(game:GameState|null, generation:number, paused:boolean,stagedIds:readonly number[]=[]) {
  const seen=useRef({generation,id:game?.log[0]?.id??0});
  const [queue,setQueue]=useState<GameEvent[]>([]);
  useEffect(()=>{
@@ -10,7 +10,7 @@ export function useAnnouncements(game:GameState|null, generation:number, paused:
   const incoming=game.log.filter(e=>e.id>seen.current.id).sort((a,b)=>a.id-b.id);
   seen.current.id=game.log[0]?.id??0;
   // Dice already describe their destination; the separate movement record drives animation.
-  const announcements=incoming.filter(e=>(e.category!=='auctions'||/wins|remains unowned/.test(e.message))&&!['turns','system'].includes(e.category)&&!(e.category==='movement'&&e.movement));
+  const announcements=incoming.filter(e=>!stagedIds.includes(e.id)&&(e.category!=='auctions'||/wins|remains unowned/.test(e.message))&&!['turns','system'].includes(e.category)&&!(e.category==='movement'&&e.movement));
   if(announcements.length)setQueue(current=>[...current,...announcements]);
  },[game?.log,generation,game]);
  const current=queue[0]??null;

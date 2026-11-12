@@ -1,7 +1,7 @@
 import { randomBytes, randomInt as cryptoInt } from 'node:crypto';
-import { publicGame, actingPlayer, activePlayer, applyAction, createOnlineGame, nextOrderRoller, playbackFrames, TOKENS, type GameAction, type GameIntent, type GameState, type OnlineCommand, type PublicRoom, type RoomPlayer, type RoomSession } from '../../shared/src/index.js';
+import { publicGame, actingPlayer, activePlayer, presentAction, nextPresentationCard, presentationSegmentDuration, createOnlineGame, playbackFrames, TOKENS, type CardPresentation, type GameAction, type GameIntent, type GameState, type OnlineCommand, type PublicRoom, type RoomPlayer, type RoomSession } from '../../shared/src/index.js';
 interface Member extends RoomPlayer {secret:string;socketId:string|null;reducedMotion:boolean;seen:Set<string>}
-interface Room {code:string;hostId:string;capacity:number;members:Member[];game:GameState|null;busyUntil:number;touched:number}
+interface Room {code:string;hostId:string;capacity:number;members:Member[];game:GameState|null;busyUntil:number;touched:number;presentation?:CardPresentation|null}
 export interface Connection {id:string;roomCode?:string;playerId?:string}
 function ensure(condition:unknown,message:string):asserts condition {if(!condition)throw new Error(message);}
 const record=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
@@ -47,9 +47,10 @@ export class RoomManager {
   const game=room.game;
   const required=game?new Set([activePlayer(game).id,actingPlayer(game).id,...(game.phase==='trade'&&game.trade?[game.trade.partnerId]:[])]):new Set<string>();
   if(game?.phase==='order-ready')required.add(room.hostId);
+  const card=room.presentation&&nextPresentationCard(room.presentation);if(card?.actorId)required.add(card.actorId);
   for(const id of required)if(game?.players.find(p=>p.id===id)?.bankrupt)required.delete(id);
   const missing=room.members.filter(m=>required.has(m.id)&&!m.connected);
-  return {code:room.code,hostId:room.hostId,capacity:room.capacity,players:room.members.map(({id,name,token,ready,connected})=>({id,name,token,ready,connected})),game:game?publicGame(game):null,paused:game&&game.phase!=='finished'&&missing.length?`Waiting for ${missing.map(m=>m.name).join(', ')} to reconnect.`:null,animationRemainingMs:Math.max(0,room.busyUntil-this.now())};
+  return {code:room.code,hostId:room.hostId,capacity:room.capacity,players:room.members.map(({id,name,token,ready,connected})=>({id,name,token,ready,connected})),game:game?publicGame(game):null,paused:game&&game.phase!=='finished'&&missing.length?`Waiting for ${missing.map(m=>m.name).join(', ')} to reconnect.`:null,animationRemainingMs:Math.max(0,room.busyUntil-this.now()),presentation:room.presentation??null,cardReadyInMs:card?Math.max(0,room.busyUntil-this.now()):0};
  }
  snapshot(conn:Connection){return this.public(this.seat(conn).room);}
  command(conn:Connection,id:unknown,raw:unknown):{room:PublicRoom|null;session?:RoomSession;replacedSocket?:string} {
@@ -73,13 +74,23 @@ export class RoomManager {
    fields(raw,['type']);if(room.game){member.connected=false;member.socketId=null;}else{room.members=room.members.filter(m=>m.id!==member.id);if(room.hostId===member.id)room.hostId=room.members.find(m=>m.connected)?.id??room.members[0]?.id??'';}
    delete conn.roomCode;delete conn.playerId;if(!room.members.length)this.rooms.delete(room.code);return {room:null};
   }
+  if(cmd.type==='continue-card'){
+   fields(raw,['type','revision','eventId']);const p=room.presentation,card=p&&nextPresentationCard(p);
+   ensure(p&&card&&Number.isSafeInteger(cmd.revision)&&cmd.revision===p.revision&&Number.isSafeInteger(cmd.eventId)&&cmd.eventId===card.id,'This card has already continued or is no longer pending.');
+   ensure(card.actorId===member.id,'Only the drawing player may continue this card.');
+   ensure(this.now()>=room.busyUntil,'Wait for the token to reach the card space.');
+   p.acknowledged.push(card.id);
+   room.busyUntil=this.now()+(room.members.every(m=>m.reducedMotion)?0:presentationSegmentDuration(p,card.id));
+   return {room:this.public(room)};
+  }
   if(cmd.type==='action'){
    fields(raw,['type','action']);ensure(room.game,'Start the match first.');ensure(!this.public(room).paused,this.public(room).paused??'Match paused.');ensure(this.now()>=room.busyUntil,'Wait for movement to finish.');
    const intent=cmd.action as GameIntent;if(intent?.type==='START_GAME')this.host(room,member);
    const action=serverAction(intent,member.id,this.entropy);
-   const previous=room.game;room.game=applyAction(previous,action);
+   ensure(!room.presentation||!nextPresentationCard(room.presentation),'Wait for the drawing player to continue the card.');
+   const previous=room.game,result=presentAction(previous,action);room.game=result.game;room.presentation=result.presentation;
    const frames=playbackFrames(room.game.log.filter(e=>e.id>(previous.log[0]?.id??0)));
-   room.busyUntil=this.now()+(room.members.every(m=>m.reducedMotion)?0:frames.reduce((n,f)=>n+f.duration,0));
+   room.busyUntil=this.now()+(room.members.every(m=>m.reducedMotion)?0:room.presentation?presentationSegmentDuration(room.presentation):frames.reduce((n,f)=>n+f.duration,0));
    return {room:this.public(room)};
   }
   this.lobby(room);

@@ -29,12 +29,22 @@ try {
  const fixture=async(name,space=9,development=0)=>{await page.goto(`${url}/test/fixtures.html?space=${space}&development=${development}#${name}`);await page.reload();await page.locator('.playing').waitFor();};
  const state=async()=>JSON.parse(await page.locator('[data-fixture-state]').textContent());
  const waitFor=async(fn)=>{for(let i=0;i<150;i++){if(await fn())return;await page.waitForTimeout(100);}throw new Error('Timed out waiting for UI state.');};
- const drain=async()=>{for(let i=0;i<80;i++){if(await page.getByRole('button',{name:'Dismiss announcement',exact:true}).count()){await page.getByRole('button',{name:'Dismiss announcement',exact:true}).click();await page.waitForTimeout(35);continue;}if(await page.locator('.playing').getAttribute('data-busy')==='true'){await page.waitForTimeout(100);continue;}await page.waitForTimeout(50);if(!await page.getByRole('button',{name:'Dismiss announcement',exact:true}).count())return;}throw new Error('Announcement queue did not drain.');};
+ const drain=async()=>{for(let i=0;i<80;i++){const continueButton=page.getByRole('button',{name:'Continue',exact:true});if(await continueButton.count()){await continueButton.click();await page.waitForTimeout(100);continue;}if(await page.getByRole('button',{name:'Dismiss announcement',exact:true}).count()){await page.getByRole('button',{name:'Dismiss announcement',exact:true}).click();await page.waitForTimeout(35);continue;}if(await page.locator('.playing').getAttribute('data-busy')==='true'){await page.waitForTimeout(100);continue;}await page.waitForTimeout(50);if(!await page.getByRole('button',{name:'Dismiss announcement',exact:true}).count())return;}throw new Error('Announcement queue did not drain.');};
  const openProperty=async(name)=>{await page.getByRole('button',{name:`View ${name} property details`,exact:true}).click();await page.getByRole('dialog').waitFor();};
  const close=async()=>page.keyboard.press('Escape');
  const portfolios=async(playerId='player-1')=>{await page.locator(`[data-leaderboard-player="${playerId}"]`).click();await page.getByRole('dialog').waitFor();};
  const history=async()=>{await page.getByRole('button',{name:'Table History',exact:true}).click();await page.getByRole('dialog').waitFor();};
  const roll=async(dice,draw=0)=>{await queue([dice[0]-1,dice[1]-1,draw]);await page.getByRole('button',{name:'Roll Dice',exact:true}).click();};
+ await check('reduced-motion moves retain a static landing highlight without replaying it on purchase',async()=>{
+  await fixture('landing');await roll([1,2]);
+  const tile=page.locator('[data-space-id="3"]');
+  await tile.locator('.occupants [data-player-id="player-1"]').waitFor();
+  assert.equal(await tile.evaluate(e=>e.classList.contains('landing-highlight')),true);
+  assert.equal(await tile.evaluate(e=>getComputedStyle(e).animationName),'none');
+  await waitFor(async()=>!await tile.evaluate(e=>e.classList.contains('landing-highlight')));
+  await drain();await page.getByRole('button',{name:'Buy for $60',exact:true}).click();
+  assert.equal(await tile.evaluate(e=>e.classList.contains('landing-highlight')),false);
+ });
  await check('board-first layout and readable 40-space board across nine viewports',async()=>{
   for(const [width,height]of [[1920,1080],[1440,900],[1366,768],[1280,720],[1280,600],[1024,768],[768,1024],[390,844],[320,700]]){
    await page.setViewportSize({width,height});await create(4);
@@ -64,7 +74,7 @@ try {
      for(const tile of visible){for(const marker of tile.querySelectorAll('.occupants,.ownership-marker,.development-markers'))for(const text of tile.querySelectorAll('.space-name,.space-price,.space-rent'))if(intersects(marker.getBoundingClientRect(),text.getBoundingClientRect()))overlaps.push(`${tile.dataset.spaceId}: ${marker.className} overlaps ${text.className}`);}
      return {clipped,overlaps,piece:document.querySelector('.occupants .token').getBoundingClientRect().width,owner:document.querySelector('.ownership-marker .token').getBoundingClientRect().width};
     });
-    assert.deepEqual(report.clipped,[],`${width}x${height}, space ${space}, development ${development}`);assert.deepEqual(report.overlaps,[],`${width}x${height}, space ${space}, development ${development}`);assert.ok(Math.abs(report.piece-11.25)<.1);assert.ok(Math.abs(report.owner-15)<.1);assert.equal(await page.locator(`[data-space-id="${space}"] .occupants .token`).count(),4);
+    assert.deepEqual(report.clipped,[],`${width}x${height}, space ${space}, development ${development}`);assert.deepEqual(report.overlaps,[],`${width}x${height}, space ${space}, development ${development}`);assert.ok(Math.abs(report.piece-(width>1000&&height<=650&&[11,12,15,39].includes(space)?11.25:14.4))<.1);assert.ok(Math.abs(report.owner-15)<.1);assert.equal(await page.locator(`[data-space-id="${space}"] .occupants .token`).count(),4);
    }
   }await page.setViewportSize({width:1366,height:768});
  });
@@ -138,7 +148,7 @@ try {
   await fixture('third-attempt');await queue([0,1,0]);await page.getByRole('button',{name:'Attempt doubles',exact:true}).click();assert.equal((await state()).players[0].cash,1450);assert.equal((await state()).players[0].position,13);
  });
  await check('queued card announcements reveal original text, inventory and real opponent transfers',async()=>{
-  await fixture('treasure-release');await roll([1,2],5);await page.getByRole('button',{name:'Dismiss announcement',exact:true}).click();await page.locator('.event-card').waitFor();assert.match(await page.locator('.event-card').innerText(),/Community guarantor/);assert.match(await page.locator('.event-card').innerText(),/Get Out of Trouble/);await drain();await portfolios();assert.match(await page.getByRole('dialog').innerText(),/Get Out of Trouble cards: 1/);await close();
+  await fixture('treasure-release');await roll([1,2],5);await page.locator('.drawn-card').waitFor();assert.match(await page.getByRole('dialog').innerText(),/Community guarantor/);assert.match(await page.locator('.drawn-card').innerText(),/Get Out of Trouble/);await drain();await portfolios();assert.match(await page.getByRole('dialog').innerText(),/Get Out of Trouble cards: 1/);await close();
   await fixture('treasure-collect');await roll([1,2],6);await drain();await portfolios();assert.match(await page.getByRole('dialog').innerText(),/\$1,530/);await close();await history();await page.getByLabel('Event category').selectOption('cards');assert.match(await page.getByRole('dialog').innerText(),/Neighborhood supper/);assert.equal(await page.locator('.event-log li').count(),4);await close();
  });
  await check('earned doubles roll is available while End Turn remains disabled',async()=>{

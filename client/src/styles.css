@@ -380,3 +380,91 @@ button:disabled{cursor:not-allowed;opacity:.45;filter:none}
  .playing .board .transit.many-occupants{grid-template-columns:10px minmax(0,1fr)}
  .playing .board .transit.many-occupants .space-symbol .board-icon{width:10px;height:10px}
 }
+
+/* Board finish: retain the established grid and inward-facing strips. */
+.board{border-color:#8c9e90;box-shadow:0 2px 0 #93a08c,0 5px 14px #243f3512}
+.board .space{border-color:#aab6a8}
+.board .property{--property-background:color-mix(in srgb,var(--property-color) 18%,white);background:var(--property-background)}
+.board .property.collection-complete{--property-background:color-mix(in srgb,var(--property-color) 22%,white);box-shadow:inset 0 0 0 1px var(--property-color)}
+.board .property-color{background:var(--property-color)}
+.board .tax{background:#fff0b8}.board .tax .board-icon{color:#b7791f;stroke-width:1.9}
+.board .treasure{background:#d9f3fa}.board .treasure .space-symbol{color:#19567d}
+.board .luck{background:#ffe5d6}.board .luck .space-symbol{color:#a94b29}
+.board .transit{background:#e2f0fa}.board .transit .space-symbol{color:#315f83}
+.board .utility{background:#dcf3ea}.board .utility .board-icon{stroke-width:1.9}
+.board .start{background:#e0efcf}.board .inspection{background:#e1e9f2}
+.board .detour{background:#f9dcd6}.board .rest{background:#e6efdc}
+.board .treasure .space-name{white-space:nowrap;overflow-wrap:normal;letter-spacing:-.15px}
+.board-center .city-art i{background:#75938a;border-color:#416b5c;box-shadow:inset 3px 0 #ffffff35}
+.board-center h2{text-shadow:0 1px 0 #fff;font-weight:850;color:#193e32}
+.board-center .city-art{margin-bottom:8px}
+.property-group-swatch{height:8px;border-radius:3px;margin-bottom:18px}
+.playing .board .occupants .token,.playing .board .start .occupants .token{width:14.4px;height:14.4px;filter:drop-shadow(0 1px 1px #ffffffee)}
+.playing .board .space.occupied{padding-bottom:18px}
+.playing .board .edge-top.occupied.property{padding-bottom:22px}
+.playing .board .many-occupants .occupants{width:60px;max-width:60px;flex-wrap:wrap}
+.playing .board .many-occupants{padding-bottom:32px}
+/* Crowded shallow sides retain the compact lane to protect their labels. */
+.playing .board .edge-left.many-occupants .occupants,.playing .board .edge-right.many-occupants .occupants{width:22px;max-width:22px}
+.playing .board .edge-left.many-occupants .occupants .token,.playing .board .edge-right.many-occupants .occupants .token{width:11px;height:11px}
+.playing .board .utility.edge-top.occupied .occupants,.playing .board .utility.edge-bottom.occupied .occupants{width:29px;max-width:29px}
+.playing .board .utility.edge-top.occupied,.playing .board .utility.edge-bottom.occupied{padding-top:34px;padding-bottom:2px}
+.playing .board .utility.edge-top.many-occupants .occupants,.playing .board .utility.edge-bottom.many-occupants .occupants{width:43.2px;max-width:43.2px}
+.playing .board .utility.edge-top.many-occupants,.playing .board .utility.edge-bottom.many-occupants{padding-top:46px}
+.occupants .active-token{border-radius:50%;box-shadow:0 0 0 1px white,0 0 5px 2px color-mix(in srgb,var(--token-color) 55%,transparent)}
+.occupants .active-token:not(.moving-token){animation:token-focus 2.4s ease-in-out infinite}
+@keyframes token-focus{50%{box-shadow:0 0 0 1px white,0 0 7px 3px color-mix(in srgb,var(--token-color) 40%,transparent)}}
+.board .landing-highlight{outline:2px solid #779b64;outline-offset:-3px;animation:landing-focus 1s ease-out}
+@keyframes landing-focus{from{box-shadow:inset 0 0 10px #8dad6a99}to{box-shadow:inset 0 0 0 #8dad6a00}}
+.drawn-card{display:grid;gap:18px;font-size:16px;line-height:1.7}.drawn-card p{margin:0}.drawn-card small{font-size:12px;color:#52664f}
+.card-deck{width:max-content;padding:5px 12px;border-radius:4px;font-size:11px;font-weight:800;letter-spacing:2px;text-transform:uppercase}
+.card-deck.luck{background:#ffe5d6;color:#9c472a}.card-deck.treasure{background:#d9f3fa;color:#19567d}
+.transaction-transfers{display:grid;gap:6px}.transaction-transfer{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;font-weight:750}
+.cash-in{color:#2c7049}.cash-out{color:#a04734}
+@media(min-width:1001px) and (max-height:650px),(max-width:1000px){
+ .playing .board .edge-left.occupied:not(.many-occupants),.playing .board .edge-right.occupied:not(.many-occupants){padding-left:34px}
+ .playing .board .edge-left.occupied:not(.many-occupants) .occupants,.playing .board .edge-right.occupied:not(.many-occupants) .occupants{width:29px;max-width:29px}
+}
+@media(prefers-reduced-motion:reduce){.occupants .active-token,.board .landing-highlight{animation:none}.moving-token{animation:none!important}}
+
+.player-leaderboard button{position:relative}.player-cash-effect{position:absolute;right:4px;top:-8px;background:#fffdf6;border:1px solid #bcccb3;border-radius:4px;padding:1px 5px;font-size:12px;box-shadow:0 1px 4px #243f3515;z-index:2;pointer-events:none}
+.playing .board .transit.occupied{padding-bottom:14px}
+
+.board .tax{grid-template-columns:24px minmax(0,1fr)}.board .tax .board-icon{width:24px;height:24px}
+/* A two-by-two lane also keeps larger pieces clear of shallow desktop labels. */
+.playing .board .edge-left.occupied:not(.many-occupants),.playing .board .edge-right.occupied:not(.many-occupants){padding-left:34px;padding-top:1px;padding-bottom:1px}
+.playing .board .edge-left.occupied:not(.many-occupants) .occupants,.playing .board .edge-right.occupied:not(.many-occupants) .occupants{left:2px;bottom:50%;transform:translateY(50%);width:29px;max-width:29px;flex-wrap:wrap}
+@media(min-width:1001px) and (max-height:650px){.playing .board .edge-left.many-occupants .occupants .token,.playing .board .edge-right.many-occupants .occupants .token{width:10.5px;height:10.5px}}
+.playing .board .edge-left.owned.occupied,.playing .board .edge-right.owned.occupied{padding-right:24px}
+.playing .board .edge-left.owned.occupied .space-name,.playing .board .edge-right.owned.occupied .space-name{margin-right:0;max-width:100%;font-size:9px}
+.playing .board .edge-left.owned.occupied .space-price,.playing .board .edge-right.owned.occupied .space-price,.playing .board .edge-left.owned.occupied .space-rent,.playing .board .edge-right.owned.occupied .space-rent{margin-right:0}
+@media(min-width:1001px) and (max-height:650px){
+ .playing .board .transit.owned.occupied .space-name{font-size:8.5px;line-height:1}
+ .playing .board .transit.owned.occupied .space-rent{font-size:8px;white-space:nowrap}
+ .playing .board .transit.owned.occupied .space-symbol .board-icon{width:12px;height:12px}
+}
+.playing .board .property.owned.occupied.edge-left .space-rent,.playing .board .property.owned.occupied.edge-right .space-rent{font-size:clamp(8.5px,calc(100cqw / 6),10px);white-space:nowrap}
+@media(min-width:1001px) and (max-height:650px){
+ /* On exceptionally shallow cells, keep label room ahead of piece enlargement. */
+ .playing .board .edge-left.occupied:not(.many-occupants),.playing .board .edge-right.occupied:not(.many-occupants){padding-left:28px}
+ .playing .board .edge-left.occupied:not(.many-occupants) .occupants,.playing .board .edge-right.occupied:not(.many-occupants) .occupants{width:22.5px;max-width:22.5px}
+ .playing .board .edge-left.occupied:not(.many-occupants) .occupants .token,.playing .board .edge-right.occupied:not(.many-occupants) .occupants .token{width:11.25px;height:11.25px}
+}
+@media(prefers-reduced-motion:reduce){.occupants .active-token:not(.moving-token){animation:none}}
+@media(max-width:1000px),(max-height:650px){
+ .playing .board .many-occupants{padding-bottom:25px}
+ .playing .board .many-occupants .occupants{width:45px;max-width:45px}
+ .playing .board .many-occupants .occupants .token{width:11.25px;height:11.25px}
+ .playing .board .edge-left.many-occupants .occupants,.playing .board .edge-right.many-occupants .occupants{width:22px;max-width:22px}
+ .playing .board .edge-left.many-occupants .occupants .token,.playing .board .edge-right.many-occupants .occupants .token{width:11px;height:11px}
+ .playing .board .utility.edge-top.many-occupants .occupants,.playing .board .utility.edge-bottom.many-occupants .occupants{width:33.75px;max-width:33.75px}
+ .playing .board .utility.edge-top.many-occupants,.playing .board .utility.edge-bottom.many-occupants{padding-top:39px}
+}
+@media(min-width:1001px) and (max-height:650px){.playing .board .edge-left.many-occupants .occupants .token,.playing .board .edge-right.many-occupants .occupants .token{width:10.5px;height:10.5px}}
+.playing .board .space.many-occupants{padding-bottom:32px}
+.playing .board .space.edge-left.many-occupants,.playing .board .space.edge-right.many-occupants{padding-bottom:1px}
+.playing .board .space.property.edge-top.many-occupants{padding-bottom:34px}
+@media(max-width:1000px),(max-height:650px){
+ .playing .board .space.many-occupants{padding-bottom:25px}
+ .playing .board .space.property.edge-top.many-occupants{padding-bottom:29px}
+}

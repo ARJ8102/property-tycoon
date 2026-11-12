@@ -17,6 +17,7 @@
     "test:server": "npm run test -w server",
     "test:online": "node client/test/online.browser.mjs",
     "test:connection": "node client/test/connection.browser.mjs",
+    "test:cards": "node client/test/cards.browser.mjs",
     "test:production": "node client/test/production.browser.mjs",
     "check:gitignore": "node scripts/check-git-ignore.mjs"
   },

@@ -12,6 +12,7 @@ import './landmarks.test.mjs';
 import './events.test.mjs';
 import './bank.test.mjs';
 import './playback.test.mjs';
+import './presentation.test.mjs';
 
 import './live-rent.test.mjs';
 import './players.test.mjs';

@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { actingPlayer, applyAction, createGame, createOnlineGame, TOKENS, type GameAction, type GameState } from '@property-tycoon/shared';
+import { presentAction, type CardPresentation, actingPlayer, applyAction, createGame, createOnlineGame, TOKENS, type GameAction, type GameState } from '@property-tycoon/shared';
 import { GameTable } from '../src/GameTable';
 import '../src/styles.css';
 const setup={humanName:'Taylor',token:'circle',playerCount:4} as const;
@@ -8,6 +8,15 @@ function initial():GameState {
  const s=new URLSearchParams(location.search).get('players')==='8'?createOnlineGame(TOKENS.map((t,i)=>({id:`player-${i+1}`,name:`Seat ${i+1}`,token:t.id})),1234):createGame(setup,1234);if(location.hash==='#order')return s;
  s.phase='awaiting-roll';s.turn=1;s.turnOrder=s.players.map(p=>p.id);s.turnSelection=null;
  const scenario=location.hash.slice(1);
+ const params=new URLSearchParams(location.search),card=params.get('card');
+ if(card){
+  const deck=card.startsWith('luck-')?'Luck':'Treasure';s.decks![deck].draw=[card,...s.decks![deck].draw.filter(id=>id!==card)];s.players[0]!.position=deck==='Luck'?4:14;
+  if(params.has('chain')){s.players[0]!.position=33;s.decks!.Treasure.draw=['treasure-07',...s.decks!.Treasure.draw.filter(id=>id!=='treasure-07')];}
+  if(params.has('owned')){s.ownership[12]='player-2';s.ownership[15]='player-2';}
+  if(params.has('debt')){s.players[0]!.cash=0;s.ownership[1]='player-1';}
+  if(params.has('repairs')){s.ownership[1]='player-1';s.properties[1]={level:2,mortgaged:false};}
+  return s;
+ }
  if(scenario==='treasure-release'||scenario==='treasure-collect'){const id=scenario==='treasure-release'?'treasure-05':'treasure-09';s.decks!.Treasure.draw=[id,...s.decks!.Treasure.draw.filter(c=>c!==id)];s.players[0]!.position=14;return s;}
  if(scenario==='auction'){s.phase='purchase';s.pendingPurchase=1;return applyAction(s,{type:'DECLINE',actorId:'player-1',expectedRevision:0});}
  if(scenario==='extra-roll'){s.ownership[23]='player-1';s.players[0]!.position=18;return applyAction(s,{type:'ROLL',actorId:'player-1',expectedRevision:0,dice:[1,1],cardDraw:0});}
@@ -31,9 +40,10 @@ function initial():GameState {
  return s;
 }
 function Fixtures(){
+ const [presentation,setPresentation]=useState<CardPresentation|null>(null);
  const [game,setGame]=useState<GameState|null>(initial),[generation,setGeneration]=useState(1);
- const dispatch=useCallback((action:GameAction)=>setGame(s=>s?applyAction(s,action):s),[]);
+ const dispatch=useCallback((action:GameAction)=>setGame(s=>{if(!s)return s;const result=presentAction(s,action);setPresentation(result.presentation);return result.game;}),[]);
  if(!game)return <p>Returned to setup</p>;
- return <><GameTable key={generation} game={game} generation={generation} dispatch={dispatch} botsEnabled={['#ownership','#order','#auction','#debt-trade'].includes(location.hash)} onNewGame={()=>{setGeneration(n=>n+1);setGame(createGame(setup));}} onSetup={()=>setGame(null)}/><output hidden data-fixture-state>{JSON.stringify({phase:game.phase,players:game.players,ownership:game.ownership,properties:game.properties,revision:game.revision,turn:game.turn,turnOrder:game.turnOrder,turnSelection:game.turnSelection,developedThisTurn:game.developedThisTurn,acting:actingPlayer(game).id,dice:game.dice})}</output></>;
+ return <><GameTable key={generation} game={game} cardPresentation={presentation} generation={generation} dispatch={dispatch} botsEnabled={['#ownership','#order','#auction','#debt-trade'].includes(location.hash)} onNewGame={()=>{setGeneration(n=>n+1);setGame(createGame(setup));}} onSetup={()=>setGame(null)}/><output hidden data-fixture-state>{JSON.stringify({phase:game.phase,players:game.players,ownership:game.ownership,properties:game.properties,revision:game.revision,turn:game.turn,turnOrder:game.turnOrder,turnSelection:game.turnSelection,developedThisTurn:game.developedThisTurn,acting:actingPlayer(game).id,dice:game.dice})}</output></>;
 }
 createRoot(document.getElementById('root')!).render(<Fixtures/>);
