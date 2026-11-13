@@ -2,24 +2,28 @@ import type { GameAction, GameState, TokenId } from './types.js';
 import type {CardPresentation} from './presentation.js';
 /** Wire intentions omit entropy and identity. Only the server constructs GameAction. */
 export type GameIntent = GameAction extends infer A ? A extends GameAction ? Omit<A,'actorId'|'dice'|'cardDraw'|'entropy'> : never : never;
-export interface RoomPlayer {id:string;name:string;token:TokenId;ready:boolean;connected:boolean;offlineSince?:number|null;offlineForMs?:number;retired?:boolean}
-export interface PublicRoom {code:string;hostId:string;capacity:number;players:RoomPlayer[];game:GameState|null;paused:string|null;animationRemainingMs:number;presentation?:CardPresentation|null;cardReadyInMs?:number}
+export interface RoomPlayer {id:string;seat:number;name:string;token:TokenId;ready:boolean;connected:boolean;offlineSince?:number|null;offlineForMs?:number;retired?:boolean}
+export interface PublicSeat {seat:number;locked:boolean;player:RoomPlayer|null}
+export interface SeatDirectory {code:string;seats:PublicSeat[];joining:boolean;hostId:string}
+export interface PublicRoom {seats:PublicSeat[];ended:boolean;code:string;hostId:string;capacity:number;players:RoomPlayer[];game:GameState|null;paused:string|null;animationRemainingMs:number;presentation?:CardPresentation|null;cardReadyInMs?:number}
 export interface RoomSession {code:string;playerId:string;secret:string}
 export type OnlineCommand =
  | {type:'create';name:string;token:TokenId;capacity:number;reducedMotion?:boolean}
  | {type:'join';code:string;name:string;token:TokenId;reducedMotion?:boolean}
  | {type:'resume';code:string;secret:string;reducedMotion?:boolean}
+ | {type:'lookup';code:string} | {type:'claim';code:string;seat:number;name?:string;token?:TokenId;reducedMotion?:boolean}
+ | {type:'vacate'} | {type:'release';seat:number} | {type:'lock';seat:number;locked:boolean} | {type:'retire';playerId:string} | {type:'end'} | {type:'close'} | {type:'lobby'}
  | {type:'quit'} | {type:'leave'} | {type:'ready';ready:boolean} | {type:'token';token:TokenId}
  | {type:'capacity';capacity:number} | {type:'remove';playerId:string} | {type:'start'}
  | {type:'continue-card';revision:number;eventId:number}
  | {type:'action';action:GameIntent};
 // Presentation acknowledgments cannot apply a game action or financial effect.
 export interface CommandRequest {id:string;command:OnlineCommand}
-export type CommandReply = {ok:true;room:PublicRoom|null;session?:RoomSession}|{ok:false;error:string;code?:'INVALID_REQUEST'|'COMMAND_REJECTED'};
+export type CommandReply = {ok:true;room:PublicRoom|null;directory?:SeatDirectory;session?:RoomSession}|{ok:false;error:string;code?:'INVALID_REQUEST'|'COMMAND_REJECTED'};
 
 export const DEFAULT_SERVER_PORT = 3101;
 export const ONLINE_EVENTS = {identify:'tycoon:identify',command:'command',room:'room',error:'command-error'} as const;
-export const SERVER_IDENTITY = {service:'property-tycoon',protocol:4,namespace:'/'} as const;
+export const SERVER_IDENTITY = {service:'property-tycoon',protocol:5,namespace:'/'} as const;
 export type ServerIdentity = typeof SERVER_IDENTITY;
 export function isServerIdentity(value:unknown):value is ServerIdentity {
  if(!value||typeof value!=='object')return false;

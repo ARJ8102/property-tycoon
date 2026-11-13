@@ -1,14 +1,6 @@
-import {useEffect,useState} from 'react';
-import type {PublicRoom} from '@property-tycoon/shared';
+import type {OnlineCommand,PublicRoom} from '@property-tycoon/shared';
 import {Modal} from './Modal';
-/** Durations are based on the server's elapsed time, so client clock skew is harmless. */
-export function OnlinePlayers({room,playerId,pending,onRemove,open,onOpenChange}:{open:boolean;onOpenChange:(open:boolean)=>void;room:PublicRoom;playerId?:string;pending:boolean;onRemove:(id:string)=>Promise<boolean>}){
- const [elapsed,setElapsed]=useState(0);
- useEffect(()=>{setElapsed(0);const start=Date.now(),timer=window.setInterval(()=>setElapsed(Date.now()-start),1000);return()=>clearInterval(timer);},[room]);
- return <><button className="text-button" onClick={()=>onOpenChange(true)}>Players & Host</button>{open&&<Modal title="Players & Host" onClose={()=>onOpenChange(false)}><ul className="online-players">{room.players.map(p=>{
-  const offline=(p.offlineForMs??0)+elapsed,seconds=Math.floor(offline/1000);
-  return <li key={p.id}><strong>{p.name}{p.id===room.hostId?' · Host':''}</strong><span>{p.retired?'Retired':p.connected?'Online':`Offline · ${Math.floor(seconds/60)}m ${seconds%60}s`}</span>
-   {room.hostId===playerId&&!p.connected&&!p.retired&&<button className="secondary" disabled={pending||offline<120000} onClick={async()=>{if(window.confirm(`Remove ${p.name} permanently? Their retirement will return assets to the bank, or settle their outstanding debt under the bankruptcy rules.`)&&await onRemove(p.id))onOpenChange(false);}}>Remove {p.name}</button>}
-  </li>;
- })}</ul></Modal>}</>;
+export function OnlinePlayers({room,playerId,pending,onRemove,onCommand,open,onOpenChange}:{open:boolean;onOpenChange:(open:boolean)=>void;room:PublicRoom;playerId?:string;pending:boolean;onRemove:(id:string)=>Promise<boolean>;onCommand:(command:OnlineCommand)=>Promise<boolean>}){
+ const host=room.hostId===playerId;
+ return <><button className="text-button" onClick={()=>onOpenChange(true)}>Players & Host</button>{open&&<Modal title="Players & Host" onClose={()=>onOpenChange(false)}><ul className="online-players">{room.seats.map(s=><li key={s.seat}><strong>Seat {s.seat} · {s.player?.name??'Empty'}{s.player?.id===room.hostId?' · Host':''}</strong><span>{s.locked?'Locked':s.player?.retired?'Retired':s.player?.connected?'Playing':s.player?'Away':'Empty'}</span>{host&&<><button className="secondary" disabled={pending} onClick={()=>void onCommand({type:'lock',seat:s.seat,locked:!s.locked})}>{s.locked?'Unlock':'Lock'} seat {s.seat}</button>{s.player&&!s.player.retired&&<><button className="secondary" disabled={pending} onClick={()=>{if(window.confirm(`Remove occupant from Seat ${s.seat}? The player and assets remain intact.`))void onCommand({type:'release',seat:s.seat});}}>Remove occupant</button><button className="secondary" disabled={pending} onClick={async()=>{if(window.confirm(`Retire ${s.player!.name} permanently? Existing retirement and asset auction rules apply.`)&&await onRemove(s.player!.id))onOpenChange(false);}}>Retire player</button></>}</>}</li>)}</ul>{host&&<div className="action-row"><button disabled={pending} onClick={()=>{if(window.confirm('End the current game? Further gameplay will be blocked.'))void onCommand({type:'end'});}}>End game</button><button disabled={pending} onClick={()=>{if(window.confirm('Close room permanently? The room code and game will be deleted.'))void onCommand({type:'close'});}}>Close room</button></div>}</Modal>}</>;
 }

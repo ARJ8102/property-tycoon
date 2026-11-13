@@ -20,7 +20,8 @@
     "test:cards": "node client/test/cards.browser.mjs",
     "test:production": "node client/test/production.browser.mjs",
     "check:gitignore": "node scripts/check-git-ignore.mjs",
-    "test:retirement": "node client/test/retirement.browser.mjs"
+    "test:retirement": "node client/test/retirement.browser.mjs",
+    "test:seats": "node client/test/seats.browser.mjs"
   },
   "devDependencies": {
     "playwright": "^1.65.0",

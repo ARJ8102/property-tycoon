@@ -2,6 +2,8 @@
 
 An original offline and online property-trading game built with React, strict TypeScript, Vite, and Tailwind CSS. The existing gameplay now includes a viewport-filling board, live rent labels, a cash leaderboard, fixed dice-selected turn order, modal portfolios/property details, ownership collections, detention, Landmarks, queued announcements, and event-driven animations. All board art, icons and tokens are original SVG/CSS, with original card titles and descriptions; no external images or fonts.
 
+Online rooms now use persistent numbered seats: enter the room code and take an unlocked Away seat from any browser. Leaving preserves the player; retirement is a separate permanent action. See [numbered seats and host controls](SEATS.md) for the current participation model, validation, and deployment notes.
+
 ## Run locally
 
 Requires Node.js 22 LTS and npm 9+.

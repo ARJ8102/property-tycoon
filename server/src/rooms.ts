@@ -1,7 +1,7 @@
 import { randomBytes, randomInt as cryptoInt } from 'node:crypto';
-import { applyAction, publicGame, actingPlayer, activePlayer, presentAction, nextPresentationCard, presentationSegmentDuration, createOnlineGame, nextOrderRoller, playbackFrames, TOKENS, type CardPresentation, type GameAction, type GameIntent, type GameState, type OnlineCommand, type PublicRoom, type RoomPlayer, type RoomSession } from '../../shared/src/index.js';
+import { applyAction, publicGame, actingPlayer, activePlayer, presentAction, nextPresentationCard, presentationSegmentDuration, createOnlineGame, nextOrderRoller, playbackFrames, TOKENS, type CardPresentation, type GameAction, type GameIntent, type GameState, type OnlineCommand, type PublicRoom, type RoomPlayer, type RoomSession, type SeatDirectory } from '../../shared/src/index.js';
 interface Member extends RoomPlayer {secret:string;socketId:string|null;reducedMotion:boolean;seen:Set<string>;offlineSince:number|null;retired?:boolean}
-interface Room {code:string;hostId:string;capacity:number;members:Member[];game:GameState|null;busyUntil:number;touched:number;presentation?:CardPresentation|null}
+interface Room {hostSecret:string;locks:Set<number>;ended:boolean;code:string;hostId:string;capacity:number;members:Member[];game:GameState|null;busyUntil:number;touched:number;presentation?:CardPresentation|null}
 export interface Connection {id:string;roomCode?:string;playerId?:string}
 function ensure(condition:unknown,message:string):asserts condition {if(!condition)throw new Error(message);}
 const record=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
@@ -39,9 +39,9 @@ export class RoomManager {
  private rooms=new Map<string,Room>();
  constructor(private now=()=>Date.now(),private entropy=()=>cryptoInt(0x100000000)){}
  private seat(conn:Connection){const room=this.rooms.get(conn.roomCode??'');const member=room?.members.find(m=>m.id===conn.playerId&&m.socketId===conn.id);ensure(room&&member,'Join a room first.');return {room,member};}
- private host(room:Room,member:Member){ensure(room.hostId===member.id,'Only the host can do that.');}
+ private host(room:Room,member:Member){ensure(room.hostSecret===member.secret,'Only the host can do that.');}
  private lobby(room:Room){ensure(!room.game,'The match has already started.');}
- private member(conn:Connection,n:unknown,t:unknown,reduced:unknown):Member{return {id:randomBytes(12).toString('hex'),secret:randomBytes(32).toString('hex'),name:name(n),token:token(t),ready:false,connected:true,socketId:conn.id,reducedMotion:reduced===true,seen:new Set(),offlineSince:null};}
+ private member(conn:Connection,n:unknown,t:unknown,reduced:unknown):Member{return {seat:0,id:randomBytes(12).toString('hex'),secret:randomBytes(32).toString('hex'),name:name(n),token:token(t),ready:false,connected:true,socketId:conn.id,reducedMotion:reduced===true,seen:new Set(),offlineSince:null};}
  private join(conn:Connection,room:Room,m:Member){conn.roomCode=room.code;conn.playerId=m.id;room.touched=this.now();return {room:this.public(room),session:{code:room.code,playerId:m.id,secret:m.secret} satisfies RoomSession};}
  private public(room:Room):PublicRoom {
   const game=room.game;
@@ -50,49 +50,69 @@ export class RoomManager {
   const card=room.presentation&&nextPresentationCard(room.presentation);if(card?.actorId)required.add(card.actorId);
   for(const id of required)if(game?.players.find(p=>p.id===id)?.bankrupt)required.delete(id);
   const missing=room.members.filter(m=>required.has(m.id)&&!m.connected);
-  return {code:room.code,hostId:room.hostId,capacity:room.capacity,players:room.members.map(({id,name,token,ready,connected,offlineSince,retired})=>({id,name,token,ready,connected,offlineSince,offlineForMs:offlineSince===null?0:Math.max(0,this.now()-offlineSince),retired:!!retired})),game:game?publicGame(game):null,paused:game&&game.phase!=='finished'&&missing.length?`Waiting for ${missing.map(m=>m.name).join(', ')} to reconnect.`:null,animationRemainingMs:Math.max(0,room.busyUntil-this.now()),presentation:room.presentation??null,cardReadyInMs:card?Math.max(0,room.busyUntil-this.now()):0};
+  return {seats:this.directory(room).seats,ended:room.ended,code:room.code,hostId:room.hostId,capacity:room.capacity,players:room.members.map(({id,seat,name,token,ready,connected,offlineSince,retired})=>({id,seat,name,token,ready,connected,offlineSince,offlineForMs:offlineSince===null?0:Math.max(0,this.now()-offlineSince),retired:!!retired})),game:game?publicGame(game):null,paused:game&&game.phase!=='finished'&&missing.length?`Waiting for ${missing.map(m=>m.name).join(', ')} to reconnect.`:null,animationRemainingMs:Math.max(0,room.busyUntil-this.now()),presentation:room.presentation??null,cardReadyInMs:card?Math.max(0,room.busyUntil-this.now()):0};
  }
+ private directory(room:Room):SeatDirectory {
+  return {code:room.code,hostId:room.hostId,joining:!room.game&&!room.ended,seats:Array.from({length:room.capacity},(_,i)=>{const m=room.members.find(m=>m.seat===i+1);return {seat:i+1,locked:room.locks.has(i+1),player:m?{id:m.id,seat:m.seat,name:m.name,token:m.token,ready:m.ready,connected:m.connected,retired:m.retired}:null};})};
+ }
+ private transfer(room:Room,member:Member){if(room.hostSecret===member.secret){const next=room.members.find(m=>m.id!==member.id&&m.connected&&!m.retired)??room.members.find(m=>m.id!==member.id&&!m.retired);room.hostId=next?.id??'';room.hostSecret=next?.secret??'';}}
  snapshot(conn:Connection){return this.public(this.seat(conn).room);}
- command(conn:Connection,id:unknown,raw:unknown):{room:PublicRoom|null;session?:RoomSession;replacedSocket?:string} {
+ command(conn:Connection,id:unknown,raw:unknown):{room:PublicRoom|null;session?:RoomSession;directory?:SeatDirectory;closedCode?:string;replacedSocket?:string} {
   ensure(typeof id==='string'&&/^[\w-]{8,80}$/.test(id),'Invalid request ID.');
   ensure(record(raw)&&typeof raw.type==='string','Malformed command.');
   const cmd=raw as unknown as OnlineCommand;
+  if(cmd.type==='lookup'){fields(raw,['type','code']);const room=this.rooms.get(code(cmd.code));ensure(room,'Room not found.');return {room:null,directory:this.directory(room)};}
+  if(cmd.type==='claim'){
+   fields(raw,['type','code','seat','name','token','reducedMotion']);ensure(!conn.roomCode,'Leave your current room first.');const room=this.rooms.get(code(cmd.code));ensure(room,'Room not found.');ensure(Number.isInteger(cmd.seat)&&cmd.seat>=1&&cmd.seat<=room.capacity,'Invalid seat.');ensure(!room.locks.has(cmd.seat),'Seat is locked.');
+   let m=room.members.find(m=>m.seat===cmd.seat);
+   if(m){ensure(!m.connected&&!m.retired,'Seat is occupied or retired.');this.transfer(room,m);m.secret=randomBytes(32).toString('hex');m.socketId=conn.id;m.connected=true;m.offlineSince=null;m.reducedMotion=cmd.reducedMotion===true;}
+   else {this.lobby(room);ensure(!room.ended,'Game ended.');m=this.member(conn,cmd.name,cmd.token,cmd.reducedMotion);ensure(!room.members.some(p=>p.token===m!.token),'That token is already taken.');m.seat=cmd.seat;room.members.push(m);}
+   m.seen.add(id);return this.join(conn,room,m);
+  }
   if(cmd.type==='create'||cmd.type==='join'){
    ensure(!conn.roomCode,'Leave your current room first.');fields(raw,cmd.type==='create'?['type','name','token','capacity','reducedMotion']:['type','name','token','code','reducedMotion']);
    const m=this.member(conn,cmd.name,cmd.token,cmd.reducedMotion);m.seen.add(id);
    if(cmd.type==='create'){
     this.sweep();ensure(this.rooms.size<1000,'Server is full. Try again later.');let roomCode:string;do{roomCode=Array.from({length:6},()=> 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[cryptoInt(32)]).join('');}while(this.rooms.has(roomCode));
-    const room:Room={code:roomCode,hostId:m.id,capacity:capacity(cmd.capacity),members:[m],game:null,busyUntil:0,touched:this.now()};this.rooms.set(room.code,room);return this.join(conn,room,m);
+    m.seat=1;const room:Room={hostSecret:m.secret,locks:new Set(),ended:false,code:roomCode,hostId:m.id,capacity:capacity(cmd.capacity),members:[m],game:null,busyUntil:0,touched:this.now()};this.rooms.set(room.code,room);return this.join(conn,room,m);
    }
-   const room=this.rooms.get(code(cmd.code));ensure(room,'Room not found.');this.lobby(room);ensure(room.members.length<room.capacity,'This room is full.');ensure(!room.members.some(p=>p.token===m.token),'That token is already taken.');room.members.push(m);return this.join(conn,room,m);
+   const room=this.rooms.get(code(cmd.code));ensure(room,'Room not found.');this.lobby(room);ensure(!room.ended,'Game ended.');ensure(room.members.length<room.capacity,'This room is full.');ensure(!room.members.some(p=>p.token===m.token),'That token is already taken.');m.seat=Array.from({length:room.capacity},(_,i)=>i+1).find(n=>!room.members.some(p=>p.seat===n)&&!room.locks.has(n))??0;ensure(m.seat,'No empty unlocked seats.');room.members.push(m);return this.join(conn,room,m);
   }
   if(cmd.type==='resume'){
-   fields(raw,['type','code','secret','reducedMotion']);ensure(!conn.roomCode,'Already in a room.');const room=this.rooms.get(code(cmd.code));ensure(room,'Room expired or server restarted.');ensure(typeof cmd.secret==='string'&&/^[a-f0-9]{64}$/.test(cmd.secret),'Invalid session.');const m=room.members.find(m=>m.secret===cmd.secret);ensure(m&&!m.retired,'Session not found or player retired.');const replacedSocket=m.socketId??undefined;m.socketId=conn.id;m.connected=true;m.offlineSince=null;m.reducedMotion=cmd.reducedMotion===true;return {...this.join(conn,room,m),replacedSocket};
+   fields(raw,['type','code','secret','reducedMotion']);ensure(!conn.roomCode,'Already in a room.');const room=this.rooms.get(code(cmd.code));ensure(room,'Room expired or server restarted.');ensure(typeof cmd.secret==='string'&&/^[a-f0-9]{64}$/.test(cmd.secret),'Invalid session.');const m=room.members.find(m=>m.secret===cmd.secret);ensure(m&&!m.retired&&!room.locks.has(m.seat),'Session not found or player retired.');const replacedSocket=m.socketId??undefined;m.socketId=conn.id;m.connected=true;m.offlineSince=null;m.reducedMotion=cmd.reducedMotion===true;return {...this.join(conn,room,m),replacedSocket};
   }
   const {room,member}=this.seat(conn);ensure(!member.seen.has(id),'Duplicate request.');member.seen.add(id);if(member.seen.size>512)member.seen.delete(member.seen.values().next().value!);room.touched=this.now();
-  if(cmd.type==='quit'||cmd.type==='remove'){
+  if(cmd.type==='close'){fields(raw,['type']);this.host(room,member);this.rooms.delete(room.code);delete conn.roomCode;delete conn.playerId;return {room:null,closedCode:room.code};}
+  if(cmd.type==='end'||cmd.type==='lobby'){fields(raw,['type']);this.host(room,member);if(cmd.type==='end'){room.ended=true;room.presentation=null;room.busyUntil=0;}else{ensure(room.ended||room.game?.phase==='finished','End the game first.');room.game=null;room.ended=false;room.members=room.members.filter(m=>!m.retired);for(const m of room.members)m.ready=false;}return {room:this.public(room)};}
+  if(cmd.type==='lock'||cmd.type==='release'){
+   fields(raw,cmd.type==='lock'?['type','seat','locked']:['type','seat']);this.host(room,member);ensure(Number.isInteger(cmd.seat)&&cmd.seat>=1&&cmd.seat<=room.capacity,'Invalid seat.');
+   if(cmd.type==='lock'){ensure(typeof cmd.locked==='boolean','Invalid lock state.');if(cmd.locked)room.locks.add(cmd.seat);else room.locks.delete(cmd.seat);return {room:this.public(room)};}
+   const target=room.members.find(m=>m.seat===cmd.seat);ensure(target&&!target.retired,'Seat is empty or retired.');const replacedSocket=target.socketId??undefined;this.transfer(room,target);target.connected=false;target.socketId=null;target.secret=randomBytes(32).toString('hex');target.offlineSince??=this.now();return {room:this.public(room),replacedSocket};
+  }
+  if(cmd.type==='quit'||cmd.type==='remove'||cmd.type==='retire'){
    fields(raw,cmd.type==='quit'?['type']:['type','playerId']);
    let target=member;
-   if(cmd.type==='remove'){
+   if(cmd.type==='remove'||cmd.type==='retire'){
     this.host(room,member);const found=room.members.find(m=>m.id===cmd.playerId);
-    ensure(found&&!found.connected&&!found.retired,'Only disconnected players can be removed.');
-    ensure(found.offlineSince!==null&&this.now()-found.offlineSince>=120_000,'Wait until the player has been offline for 2 minutes.');target=found;
+    ensure(found&&!found.retired,'Only disconnected players can be removed or player already retired.');if(cmd.type==='remove'){ensure(!found.connected,'Only disconnected players can be removed.');ensure(found.offlineSince!==null&&this.now()-found.offlineSince>=120000,'Wait until the player has been offline for 2 minutes.');}
+    target=found;
    }
    if(room.game&&room.game.phase!=='finished'&&!room.game.players.find(p=>p.id===target.id)?.bankrupt){
     room.game=applyAction(room.game,{type:'RETIRE',actorId:target.id,expectedRevision:room.game.revision});
     // Atomic effects have already executed; invalidate obsolete presentation gates.
     room.presentation=null;room.busyUntil=0;
    }
-   target.retired=true;target.connected=false;target.socketId=null;target.secret='';target.offlineSince??=this.now();
+   this.transfer(room,target);const removedSocket=target.socketId??undefined;target.retired=true;target.connected=false;target.socketId=null;target.secret='';target.offlineSince??=this.now();
    if(!room.game)room.members=room.members.filter(m=>m.id!==target.id);
    if(room.hostId===target.id)room.hostId=room.members.find(m=>!m.retired&&m.connected)?.id??room.members.find(m=>!m.retired)?.id??'';
    if(cmd.type==='quit'){delete conn.roomCode;delete conn.playerId;return {room:null};}
-   return {room:this.public(room)};
+   return {room:this.public(room),replacedSocket:removedSocket};
   }
-  if(cmd.type==='leave'){
-   fields(raw,['type']);if(room.game){member.connected=false;member.socketId=null;member.offlineSince??=this.now();}else{room.members=room.members.filter(m=>m.id!==member.id);if(room.hostId===member.id)room.hostId=room.members.find(m=>m.connected)?.id??room.members[0]?.id??'';}
-   delete conn.roomCode;delete conn.playerId;if(!room.members.length)this.rooms.delete(room.code);return {room:null};
+  if(cmd.type==='leave'||cmd.type==='vacate'){
+   fields(raw,['type']);this.transfer(room,member);member.connected=false;member.socketId=null;member.secret=randomBytes(32).toString('hex');member.offlineSince??=this.now();delete conn.roomCode;delete conn.playerId;return {room:null};
   }
+  ensure(!room.ended,'The host ended this game.');
+
   if(cmd.type==='continue-card'){
    fields(raw,['type','revision','eventId']);const p=room.presentation,card=p&&nextPresentationCard(p);
    ensure(p&&card&&Number.isSafeInteger(cmd.revision)&&cmd.revision===p.revision&&Number.isSafeInteger(cmd.eventId)&&cmd.eventId===card.id,'This card has already continued or is no longer pending.');
@@ -116,7 +136,7 @@ export class RoomManager {
   switch(cmd.type){
    case 'ready':fields(raw,['type','ready']);ensure(typeof cmd.ready==='boolean','Invalid ready status.');member.ready=cmd.ready;break;
    case 'token':fields(raw,['type','token']);ensure(!member.ready,'Unready before changing your token.');ensure(!room.members.some(m=>m.id!==member.id&&m.token===token(cmd.token)),'That token is already taken.');member.token=token(cmd.token);break;
-   case 'capacity':fields(raw,['type','capacity']);this.host(room,member);ensure(capacity(cmd.capacity)>=room.members.length,'Capacity is below the current player count.');room.capacity=cmd.capacity;break;
+   case 'capacity':fields(raw,['type','capacity']);this.host(room,member);ensure(capacity(cmd.capacity)>=Math.max(0,...room.members.map(m=>m.seat)),'Capacity is below the current player count.');room.capacity=cmd.capacity;break;
    case 'start':fields(raw,['type']);this.host(room,member);ensure(room.members.length>=2&&room.members.every(m=>m.connected&&m.ready),'At least two players must be connected and everyone must be ready.');room.game=createOnlineGame(room.members);break;
    default:throw new Error('Unknown room command.');
   }

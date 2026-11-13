@@ -27,26 +27,19 @@ try{
   await p.addInitScript(session=>{if(!sessionStorage.getItem('retirement-initialized')){sessionStorage.setItem('property-tycoon-room',JSON.stringify(session));sessionStorage.setItem('retirement-initialized','yes');}},sessions[i]);
   await p.goto(url);await p.locator('.playing').waitFor();pages.push(p);
  }
- await pages[0].getByRole('button',{name:'Players & Host',exact:true}).click();await pages[0].getByRole('dialog').waitFor();assert.match(await pages[0].getByRole('dialog').innerText(),/Host · Host/);assert.match(await pages[0].getByRole('dialog').innerText(),/Online/);
+ await pages[0].getByRole('button',{name:'Players & Host',exact:true}).click();await pages[0].getByRole('dialog').waitFor();assert.match(await pages[0].getByRole('dialog').innerText(),/Host · Host/);assert.match(await pages[0].getByRole('dialog').innerText(),/Playing/);
  await pages[1].reload();await pages[1].locator('.playing').waitFor();assert.equal(room.members.length,3);
  console.log('PASS online roster identifies host and secure refresh preserves one seat');
  await pages[1].context().setOffline(true);server.io.sockets.sockets.get(room.members[1].socketId).conn.close();
- const remove=pages[0].getByRole('button',{name:'Remove Guest 1',exact:true});await remove.waitFor();assert.equal(await remove.isDisabled(),true);assert.match(await pages[0].getByRole('dialog').innerText(),/Offline · 0m/);
- await pages[1].getByRole('button',{name:'Exit to menu',exact:true}).click();await pages[1].locator('#player-name').waitFor();
- assert.ok(await pages[1].evaluate(()=>sessionStorage.getItem('property-tycoon-room')));
- await pages[1].setViewportSize({width:390,height:844});assert.equal(await pages[1].evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
- time+=120000;server.io.to(room.code).emit('room',manager.roomSnapshot(room.code));await wait(()=>remove.isEnabled());
- await pages[1].context().setOffline(false);await pages[1].getByRole('button',{name:'Rejoin Previous Game',exact:true}).click();await pages[1].locator('.playing').waitFor();await wait(async()=>room.members[1].connected);await wait(async()=>!await remove.count());
- console.log('PASS two-minute removal timer is visible and reconnect immediately removes eligibility');
- await pages[1].context().setOffline(true);server.io.sockets.sockets.get(room.members[1].socketId).conn.close();await remove.waitFor();time+=120000;server.io.to(room.code).emit('room',manager.roomSnapshot(room.code));await wait(()=>remove.isEnabled());
+ const remove=pages[0].getByRole('dialog').getByRole('listitem').filter({hasText:'Guest 1'}).getByRole('button',{name:'Retire player',exact:true});await remove.waitFor();assert.equal(await remove.isEnabled(),true);assert.match(await pages[0].getByRole('dialog').innerText(),/Away/);
  pages[0].once('dialog',d=>d.dismiss());await remove.click();assert.equal(room.game.players[1].bankrupt,false);
- pages[0].once('dialog',d=>d.accept());await remove.click();await wait(async()=>room.game.players[1].retired);await wait(async()=>!await pages[0].getByRole('dialog',{name:'Players & Host',exact:true}).count());
+ pages[0].once('dialog',d=>d.accept());await remove.click();await wait(async()=>room.game.players[1].retired);
  await wait(async()=>room.game.phase==='auction');assert.equal(room.game.auction.propertyId,1);assert.ok(!room.game.auction.participants.includes(sessions[1].playerId));
- await pages[1].context().setOffline(false);await pages[1].getByRole('button',{name:'Start a new online game',exact:true}).waitFor();await pages[1].getByRole('button',{name:'Start a new online game',exact:true}).click();
- console.log('PASS host removal requires confirmation, retires assets into auction and revokes the old seat');
+ await pages[1].context().setOffline(false);
+ console.log('PASS host retirement requires confirmation and auctions preserved assets');
  // Retire the host during the auction. Only one active player remains.
- pages[0].once('dialog',d=>d.dismiss());await pages[0].getByRole('dialog').getByRole('button',{name:'Quit Game',exact:true}).click();assert.equal(room.hostId,sessions[0].playerId);
- pages[0].once('dialog',d=>d.accept());await pages[0].getByRole('dialog').getByRole('button',{name:'Quit Game',exact:true}).click();await pages[0].locator('#player-name').waitFor();
+ pages[0].once('dialog',d=>d.dismiss());await pages[0].getByRole('dialog').getByRole('button',{name:'Retire From Game',exact:true}).click();assert.equal(room.hostId,sessions[0].playerId);
+ pages[0].once('dialog',d=>d.accept());await pages[0].getByRole('dialog').getByRole('button',{name:'Retire From Game',exact:true}).click();await pages[0].locator('#player-name').waitFor();
  assert.equal(await pages[0].evaluate(()=>sessionStorage.getItem('property-tycoon-room')),null);assert.equal(room.hostId,sessions[2].playerId);assert.equal(room.game.winnerId,sessions[2].playerId);assert.equal(room.game.phase,'finished');assert.deepEqual(errors,[]);
  console.log('PASS voluntary quit requires confirmation, transfers host, clears credentials and declares the last player winner');
 }finally{for(const s of sockets)s.disconnect();await browser?.close();await server.close();try{process.kill(-vite.pid,'SIGTERM');}catch{}}

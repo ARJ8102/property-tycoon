@@ -21,13 +21,13 @@ export function createGameServer(options:ServerOptions={}) {
  // Install all application listeners before the caller starts the HTTP listener.
  io.on('connection',socket=>{
   diagnostic('[Property Tycoon] Socket connected',{socketId:socket.id,error:''});
-  const conn:Connection={id:socket.id};let windowStart=Date.now(),requests=0;
+  const conn:Connection={id:socket.id};socket.data.connection=conn;let windowStart=Date.now(),requests=0;
   socket.on(ONLINE_EVENTS.identify,(ack:unknown)=>{if(typeof ack==='function')ack(SERVER_IDENTITY);});
   socket.on(ONLINE_EVENTS.command,async(request:unknown,ack:unknown)=>{
    const envelope=request&&typeof request==='object'?request as Record<string,unknown>:{};
    const command=envelope.command&&typeof envelope.command==='object'?envelope.command as Record<string,unknown>:{};
    const started=Date.now();
-   const commandType=['create','join','resume','leave','ready','token','capacity','remove','start','action','continue-card','quit'].includes(String(command.type))?String(command.type):'unknown';
+   const commandType=['create','join','resume','leave','ready','token','capacity','remove','start','action','continue-card','quit','lookup','claim','vacate','release','lock','retire','end','close','lobby'].includes(String(command.type))?String(command.type):'unknown';
    const action=command.action&&typeof command.action==='object'?command.action as Record<string,unknown>:{};
    const actionType=typeof action.type==='string'&&/^[A-Z_]{1,32}$/.test(action.type)?action.type:undefined;
    diagnostic('[Property Tycoon] Command received',{socketId:socket.id,roomCode:conn.roomCode,commandType,actionType,error:''});
@@ -54,9 +54,11 @@ export function createGameServer(options:ServerOptions={}) {
     if(!socket.connected){const room=manager.disconnect(conn);if(room)io.to(room.code).emit(ONLINE_EVENTS.room,room);return;}
     if(oldCode&&oldCode!==conn.roomCode)await socket.leave(oldCode);
     if(conn.roomCode)await socket.join(conn.roomCode);
-    if(result.replacedSocket&&result.replacedSocket!==socket.id)io.sockets.sockets.get(result.replacedSocket)?.disconnect(true);
+    if(result.replacedSocket&&result.replacedSocket!==socket.id){const old=io.sockets.sockets.get(result.replacedSocket);if(old){old.emit('seat-released');old.disconnect(true);}}
+    if(result.closedCode){socket.emit('room-closed');for(const other of io.sockets.sockets.values()){const bound=other.data.connection as Connection;if(bound?.roomCode===result.closedCode){delete bound.roomCode;delete bound.playerId;}}io.to(result.closedCode).emit('room-closed');io.in(result.closedCode).socketsLeave(result.closedCode);}
+    if(result.replacedSocket===socket.id){socket.emit('seat-released');delete conn.roomCode;delete conn.playerId;result.room=null;if(oldCode)await socket.leave(oldCode);}
     const roomCode=conn.roomCode??oldCode;const room=roomCode?manager.roomSnapshot(roomCode):null;if(room)io.to(room.code).emit(ONLINE_EVENTS.room,room);
-    reply({ok:true,room:result.room,...(result.session?{session:result.session}:{})});
+    reply({ok:true,room:result.room,...(result.session?{session:result.session}:{}),...(result.directory?{directory:result.directory}:{})});
    }catch(error){fail(error,'COMMAND_REJECTED');}
   });
   socket.on('disconnect',reason=>{diagnostic('[Property Tycoon] Socket disconnected',{socketId:socket.id,roomCode:conn.roomCode,reason,error:''});const room=manager.disconnect(conn);if(room)io.to(room.code).emit(ONLINE_EVENTS.room,room);});
